@@ -101,7 +101,7 @@ If it shows "No JDK found", your JDK is not on PATH. Fix:
 After unzipping the source, your folder should look like this:
 
 ```
-ChompersAndChasers/
+cmsc137-chompers-and-chasers/
 ├── src/
 │   ├── main/
 │   │   └── Main.java
@@ -126,7 +126,6 @@ ChompersAndChasers/
 │   └── network/
 │       ├── GameServer.java       ← Milestone 2 stub
 │       └── GameClient.java       ← Milestone 2 stub
-├── ChompersAndChasers.jar
 └── README.md
 ```
 
@@ -134,7 +133,7 @@ ChompersAndChasers/
 
 1. Open VS Code
 2. Go to **File → Open Folder**
-3. Select the `ChompersAndChasers/` root folder (the one containing `src/`)
+3. Select the `cmsc137-chompers-and-chasers/` root folder (the one containing `src/`)
 4. Wait a few seconds — VS Code will scan the project and the Java extension will initialize (you'll see a loading bar at the bottom)
 
 ### If VS Code shows red errors on import statements
@@ -148,17 +147,8 @@ This usually means:
 
 ## 4. How to Run
 
-### Option A — Using the pre-built JAR (Easiest)
 
-No compilation needed. Just run:
-
-```bash
-java -jar ChompersAndChasers.jar
-```
-
-Run this command from inside the `ChompersAndChasers/` folder. On Windows you can also double-click the `.jar` file if Java is associated with `.jar` files.
-
-### Option B — Compile and Run from VS Code
+### Compile and Run from VS Code
 
 **Method 1: Run button (easiest in VS Code)**
 
