@@ -4,13 +4,6 @@ import util.Direction;
 import util.GameConfig;
 import util.Role;
 
-/**
- * Represents the human-controlled Chomper (Pac-Man role).
- *
- * Milestone 1: single local player.
- * Milestone 2: each connected client will have a Player with a server-assigned Role.
- *              Role.CHASER players will use this class too (controlled by a remote client).
- */
 public class Player extends Entity {
 
     private Role role;
@@ -22,32 +15,37 @@ public class Player extends Entity {
     private boolean powered;
     private int powerTicks;
 
+    // M2: multiplayer identity
+    private String playerName;
+    private int    playerId;   // assigned by server (0-3)
+
     public Player(int startRow, int startCol, Role role) {
         super(startRow, startCol);
-        this.role    = role;
-        this.score   = 0;
-        this.lives   = GameConfig.MAX_LIVES;
-        this.currentDirection  = Direction.NONE;
-        this.bufferedDirection = Direction.NONE;
-        this.mouthFrame = 0;
-        this.powered    = false;
-        this.powerTicks = 0;
+        this.role             = role;
+        this.score            = 0;
+        this.lives            = GameConfig.MAX_LIVES;
+        this.currentDirection = Direction.NONE;
+        this.bufferedDirection= Direction.NONE;
+        this.mouthFrame       = 0;
+        this.powered          = false;
+        this.powerTicks       = 0;
+        this.playerName       = "Player";
+        this.playerId         = 0;
     }
 
     @Override
     public void move(Maze maze) {
-        // Try buffered direction first (allows pre-turning around corners)
         if (bufferedDirection != Direction.NONE) {
             int[] bd = bufferedDirection.toDelta();
             if (!maze.isWall(row + bd[0], col + bd[1])) {
-                currentDirection   = bufferedDirection;
-                bufferedDirection  = Direction.NONE;
+                currentDirection  = bufferedDirection;
+                bufferedDirection = Direction.NONE;
             }
         }
 
-        int[] delta  = currentDirection.toDelta();
-        int newRow   = row + delta[0];
-        int newCol   = col + delta[1];
+        int[] delta = currentDirection.toDelta();
+        int newRow  = row + delta[0];
+        int newCol  = col + delta[1];
 
         if (!maze.isWall(newRow, newCol)) {
             row = newRow;
@@ -57,9 +55,7 @@ public class Player extends Entity {
             if (role == Role.CHOMPER) {
                 Pellet collected = maze.collectPelletAt(row, col);
                 if (collected != null) {
-                    score += collected.isPower()
-                            ? GameConfig.SCORE_POWER
-                            : GameConfig.SCORE_PELLET;
+                    score += collected.isPower() ? GameConfig.SCORE_POWER : GameConfig.SCORE_PELLET;
                     if (collected.isPower()) {
                         powered    = true;
                         powerTicks = GameConfig.POWER_DURATION;
@@ -74,7 +70,6 @@ public class Player extends Entity {
         }
     }
 
-    /** Called when a Chaser catches this player. Deducts a life and resets position. */
     public void loseLife() {
         lives--;
         respawn();
@@ -84,10 +79,6 @@ public class Player extends Entity {
         powerTicks = 0;
     }
 
-    /**
-     * Queue a direction change. The move is buffered and validated against
-     * walls on the next tick, enabling smooth pre-turning.
-     */
     public void requestDirection(Direction d) {
         bufferedDirection = d;
         currentDirection  = d;
@@ -95,7 +86,17 @@ public class Player extends Entity {
 
     public void setCurrentDirection(Direction d) { requestDirection(d); }
 
-    // Getters
+    // ── Setters for network snapshots ────────────────────────
+    public void setRow(int r)            { this.row = r; }
+    public void setCol(int c)            { this.col = c; }
+    public void setScore(int s)          { this.score = s; }
+    public void setLives(int l)          { this.lives = l; }
+    public void setPowered(boolean p)    { this.powered = p; }
+    public void setPowerTicks(int t)     { this.powerTicks = t; }
+    public void setMouthFrame(int f)     { this.mouthFrame = f; }
+    public void setDirection(Direction d){ this.currentDirection = d; }
+
+    // ── Getters ──────────────────────────────────────────────
     public Role      getRole()        { return role; }
     public int       getScore()       { return score; }
     public int       getLives()       { return lives; }
@@ -105,4 +106,8 @@ public class Player extends Entity {
     public int       getMouthFrame()  { return mouthFrame; }
     public boolean   isAlive()        { return lives > 0; }
     public void      addScore(int n)  { score += n; }
+    public String    getPlayerName()  { return playerName; }
+    public int       getPlayerId()    { return playerId; }
+    public void      setPlayerName(String n) { this.playerName = n; }
+    public void      setPlayerId(int id)     { this.playerId = id; }
 }
