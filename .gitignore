@@ -1,0 +1,16 @@
+# Build artifacts
+bin/
+*.class
+*.jar
+
+# IDE
+.classpath
+.project
+.settings/
+*.swp
+*.swo
+*~
+
+# OS
+.DS_Store
+Thumbs.db
