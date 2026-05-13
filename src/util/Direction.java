@@ -16,10 +16,7 @@ public enum Direction {
 
     public int getDRow() { return dRow; }
     public int getDCol() { return dCol; }
-
-    public int[] toDelta() {
-        return new int[]{ dRow, dCol };
-    }
+    public int[] toDelta() { return new int[]{ dRow, dCol }; }
 
     public Direction opposite() {
         switch (this) {
