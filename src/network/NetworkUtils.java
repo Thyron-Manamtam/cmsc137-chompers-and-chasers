@@ -5,24 +5,13 @@ import java.util.*;
 
 public class NetworkUtils {
 
-    /**
-     * Returns the best LAN IP address for this machine.
-     *
-     * Uses a UDP socket trick: connecting to an external IP (no data is sent)
-     * forces the OS to select the correct outbound network interface,
-     * giving us the exact IP other machines on the same network can reach.
-     */
     public static String getLocalIP() {
-        // Best method: UDP socket trick — OS picks the right interface automatically
         try (DatagramSocket socket = new DatagramSocket()) {
             socket.connect(InetAddress.getByName("8.8.8.8"), 80);
             String ip = socket.getLocalAddress().getHostAddress();
-            if (ip != null && !ip.equals("0.0.0.0") && !ip.equals("127.0.0.1")) {
-                return ip;
-            }
+            if (ip != null && !ip.equals("0.0.0.0") && !ip.equals("127.0.0.1")) return ip;
         } catch (Exception ignored) {}
 
-        // Fallback: scan interfaces and prefer common LAN ranges
         try {
             Enumeration<NetworkInterface> interfaces = NetworkInterface.getNetworkInterfaces();
             String fallback = null;
@@ -34,27 +23,18 @@ public class NetworkUtils {
                     InetAddress addr = addresses.nextElement();
                     if (!(addr instanceof Inet4Address)) continue;
                     String ip = addr.getHostAddress();
-                    if (ip.startsWith("192.168.") || ip.startsWith("10.") || ip.startsWith("172.")) {
-                        return ip;
-                    }
+                    if (ip.startsWith("192.168.") || ip.startsWith("10.") || ip.startsWith("172.")) return ip;
                     if (fallback == null) fallback = ip;
                 }
             }
             if (fallback != null) return fallback;
-        } catch (Exception e) {
-            e.printStackTrace();
-        }
+        } catch (Exception e) { e.printStackTrace(); }
         return "127.0.0.1";
     }
 
-    /**
-     * Prints a full diagnostic of all network interfaces to System.out.
-     * Useful for debugging which IP is being used.
-     */
     public static void printDiagnostic() {
         System.out.println("=== NETWORK DIAGNOSTIC ===");
         System.out.println("Chosen IP (getLocalIP): " + getLocalIP());
-        System.out.println("All interfaces:");
         try {
             Enumeration<NetworkInterface> interfaces = NetworkInterface.getNetworkInterfaces();
             while (interfaces.hasMoreElements()) {
@@ -62,25 +42,20 @@ public class NetworkUtils {
                 System.out.printf("  [%s] up=%b loopback=%b virtual=%b%n",
                     ni.getName(), ni.isUp(), ni.isLoopback(), ni.isVirtual());
                 Enumeration<InetAddress> addresses = ni.getInetAddresses();
-                while (addresses.hasMoreElements()) {
+                while (addresses.hasMoreElements())
                     System.out.println("    -> " + addresses.nextElement().getHostAddress());
-                }
             }
-        } catch (Exception e) {
-            System.out.println("  Error: " + e.getMessage());
-        }
+        } catch (Exception e) { System.out.println("  Error: " + e.getMessage()); }
         System.out.println("==========================");
     }
 
-    /** Minimal JSON serializer for Map<String,Object> — no external libs needed. */
     public static String toJson(Map<String, Object> map) {
         StringBuilder sb = new StringBuilder("{");
         boolean first = true;
         for (Map.Entry<String, Object> e : map.entrySet()) {
             if (!first) sb.append(",");
             first = false;
-            sb.append("\"").append(e.getKey()).append("\":");
-            sb.append(valueToJson(e.getValue()));
+            sb.append("\"").append(e.getKey()).append("\":").append(valueToJson(e.getValue()));
         }
         sb.append("}");
         return sb.toString();
@@ -93,31 +68,20 @@ public class NetworkUtils {
         if (v instanceof List) {
             StringBuilder sb = new StringBuilder("[");
             boolean first = true;
-            for (Object item : (List<?>)v) {
-                if (!first) sb.append(",");
-                first = false;
-                sb.append(valueToJson(item));
-            }
+            for (Object item : (List<?>)v) { if (!first) sb.append(","); first = false; sb.append(valueToJson(item)); }
             sb.append("]");
             return sb.toString();
         }
-        if (v instanceof Map) {
-            @SuppressWarnings("unchecked")
-            Map<String,Object> m = (Map<String,Object>)v;
-            return toJson(m);
-        }
+        if (v instanceof Map) { @SuppressWarnings("unchecked") Map<String,Object> m = (Map<String,Object>)v; return toJson(m); }
         return "\"" + v + "\"";
     }
 
-    /** Very minimal JSON parser — handles flat and one-level-nested objects. */
     public static Map<String, Object> fromJson(String json) {
         Map<String, Object> map = new LinkedHashMap<>();
         json = json.trim();
         if (json.startsWith("{")) json = json.substring(1);
         if (json.endsWith("}")) json = json.substring(0, json.length() - 1);
-
-        List<String> pairs = splitTopLevel(json, ',');
-        for (String pair : pairs) {
+        for (String pair : splitTopLevel(json, ',')) {
             int colon = pair.indexOf(':');
             if (colon < 0) continue;
             String key = pair.substring(0, colon).trim().replace("\"","");
@@ -131,15 +95,11 @@ public class NetworkUtils {
         if (val.equals("null")) return null;
         if (val.equals("true")) return true;
         if (val.equals("false")) return false;
-        if (val.startsWith("\"") && val.endsWith("\""))
-            return val.substring(1, val.length() - 1).replace("\\\"","\"");
+        if (val.startsWith("\"") && val.endsWith("\"")) return val.substring(1, val.length()-1).replace("\\\"","\"");
         if (val.startsWith("[")) {
             List<Object> list = new ArrayList<>();
-            String inner = val.substring(1, val.length() - 1).trim();
-            if (!inner.isEmpty()) {
-                for (String item : splitTopLevel(inner, ','))
-                    list.add(parseValue(item.trim()));
-            }
+            String inner = val.substring(1, val.length()-1).trim();
+            if (!inner.isEmpty()) for (String item : splitTopLevel(inner, ',')) list.add(parseValue(item.trim()));
             return list;
         }
         if (val.startsWith("{")) return fromJson(val);
@@ -151,8 +111,7 @@ public class NetworkUtils {
 
     private static List<String> splitTopLevel(String s, char delim) {
         List<String> parts = new ArrayList<>();
-        int depth = 0;
-        boolean inStr = false;
+        int depth = 0; boolean inStr = false;
         StringBuilder cur = new StringBuilder();
         for (int i = 0; i < s.length(); i++) {
             char c = s.charAt(i);
@@ -160,11 +119,7 @@ public class NetworkUtils {
             if (!inStr) {
                 if (c == '{' || c == '[') depth++;
                 else if (c == '}' || c == ']') depth--;
-                else if (c == delim && depth == 0) {
-                    parts.add(cur.toString());
-                    cur.setLength(0);
-                    continue;
-                }
+                else if (c == delim && depth == 0) { parts.add(cur.toString()); cur.setLength(0); continue; }
             }
             cur.append(c);
         }

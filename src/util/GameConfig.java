@@ -14,10 +14,18 @@ public final class GameConfig {
     public static final int SCORE_POWER     = 50;
     public static final int SCORE_EAT_BASE  = 200;
     public static final int NUM_AI_CHASERS  = 4;
-    public static final int    SERVER_PORT      = 5000;
-    public static final String DEFAULT_HOST     = "localhost";
-    public static final int    MIN_PLAYERS      = 2;
-    public static final int    MAX_PLAYERS      = 5;
-    public static final int    GAME_DURATION_S  = 120;
-    public static final int    ROLE_REVEAL_MS   = 3000;
+    public static final int SERVER_PORT     = 5000;
+    public static final String DEFAULT_HOST = "localhost";
+    public static final int MIN_PLAYERS     = 2;
+    public static final int MAX_PLAYERS     = 5;
+    public static final int GAME_DURATION_S = 120;
+    public static final int ROLE_REVEAL_MS  = 4000;
+
+    // Unified window size for all non-game screens
+    public static final int WINDOW_W = 600;
+    public static final int WINDOW_H = 700;
+
+    // Game window size
+    public static final int GAME_W  = MAZE_COLS * TILE_SIZE;           // 600
+    public static final int GAME_H  = MAZE_ROWS * TILE_SIZE + 30;      // 630
 }

@@ -28,8 +28,8 @@ public class ClientHandler implements Runnable {
     public ClientHandler(Socket socket, GameServer server, int id) {
         this.socket = socket;
         this.server = server;
-        this.id = id;
-        this.name = "Player" + id;
+        this.id     = id;
+        this.name   = "Player" + id;
     }
 
     @Override
@@ -38,7 +38,6 @@ public class ClientHandler implements Runnable {
             out = new PrintWriter(new OutputStreamWriter(socket.getOutputStream()), true);
             BufferedReader in = new BufferedReader(new InputStreamReader(socket.getInputStream()));
 
-            // Send welcome
             Map<String,Object> welcome = new LinkedHashMap<>();
             welcome.put("type","WELCOME");
             welcome.put("playerId", id);
@@ -46,9 +45,7 @@ public class ClientHandler implements Runnable {
             send(welcome);
 
             String line;
-            while ((line = in.readLine()) != null) {
-                handleMessage(NetworkUtils.fromJson(line));
-            }
+            while ((line = in.readLine()) != null) handleMessage(NetworkUtils.fromJson(line));
         } catch (IOException e) {
             // connection dropped
         } finally {
@@ -77,7 +74,8 @@ public class ClientHandler implements Runnable {
                 server.onReady(this);
                 break;
             case "START":
-                server.onStartGame();
+                // Only host (first client) can start the game
+                server.onStartGame(this);
                 break;
             case "INPUT":
                 String dir = (String) msg.get("direction");
@@ -89,18 +87,11 @@ public class ClientHandler implements Runnable {
     }
 
     public void applyBufferedDirection() {
-        if (player != null && bufferedDirection != null && bufferedDirection != Direction.NONE) {
+        if (player != null && bufferedDirection != null && bufferedDirection != Direction.NONE)
             player.setCurrentDirection(bufferedDirection);
-        }
     }
 
-    public void send(Map<String,Object> msg) {
-        sendRaw(NetworkUtils.toJson(msg));
-    }
-
-    public void sendRaw(String json) {
-        if (out != null) out.println(json);
-    }
-
-    public int getId() { return id; }
+    public void send(Map<String,Object> msg) { sendRaw(NetworkUtils.toJson(msg)); }
+    public void sendRaw(String json)         { if (out != null) out.println(json); }
+    public int  getId()                      { return id; }
 }

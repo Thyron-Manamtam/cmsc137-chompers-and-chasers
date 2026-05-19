@@ -13,6 +13,7 @@ public class GameWindow extends JFrame {
     private final JPanel root = new JPanel(cards);
 
     private MainMenuPanel         mainMenu;
+    private HowToPlayScreen       howToPlay;
     private ModeSelectScreen      modeSelect;
     private MultiplayerMenuScreen mpMenu;
     private HostScreen            hostScreen;
@@ -46,9 +47,16 @@ public class GameWindow extends JFrame {
     private void buildMainMenu() {
         mainMenu = new MainMenuPanel(
             () -> { buildModeSelect(); showCard("modeSelect"); },
+            () -> { buildHowToPlay(); showCard("howToPlay"); },
             () -> System.exit(0)
         );
         root.add(mainMenu, "mainMenu");
+    }
+
+    private void buildHowToPlay() {
+        if (howToPlay != null) { showCard("howToPlay"); return; }
+        howToPlay = new HowToPlayScreen(() -> showCard("mainMenu"));
+        root.add(howToPlay, "howToPlay");
     }
 
     private void buildModeSelect() {

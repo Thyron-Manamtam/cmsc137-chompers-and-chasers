@@ -3,7 +3,6 @@ package network;
 import util.Role;
 import java.util.*;
 
-/** Snapshot of game state received from server — used by client-side renderer. */
 public class ClientGameState {
     public static class PlayerInfo {
         public int id;
@@ -12,6 +11,7 @@ public class ClientGameState {
         public int row, col;
         public int lives, score;
         public boolean powered;
+        public boolean ready;
         public String direction;
         public boolean connected;
     }
@@ -26,17 +26,16 @@ public class ClientGameState {
     public List<PelletInfo> pellets = new ArrayList<>();
     public int timeLeft = 120;
     public int tick = 0;
-    public String gameResult = null; // null = in progress, "CHOMPERS" or "CHASERS"
+    public String gameResult = null;
     public String resultReason = null;
 
-    // Local player info
     public int myId = -1;
     public Role myRole = null;
     public String myName = "";
+    public int hostId = -1;
 
     public PlayerInfo getMyInfo() {
-        for (PlayerInfo p : players)
-            if (p.id == myId) return p;
+        for (PlayerInfo p : players) if (p.id == myId) return p;
         return null;
     }
 }

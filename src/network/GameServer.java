@@ -11,26 +11,21 @@ import java.util.concurrent.atomic.*;
 
 public class GameServer {
 
-    // ── Lobby state ──────────────────────────────────────────
     private final ServerSocket serverSocket;
     private final List<ClientHandler> clients = new CopyOnWriteArrayList<>();
     private final AtomicInteger nextId = new AtomicInteger(1);
     private volatile boolean gameStarted = false;
-    private volatile boolean gameOver = false;
+    private volatile boolean gameOver    = false;
 
-    // ── Game state (authoritative) ───────────────────────────
     private Maze maze;
     private final Map<Integer, Player> players = new ConcurrentHashMap<>();
     private final ScheduledExecutorService gameLoop = Executors.newSingleThreadScheduledExecutor();
     private ScheduledFuture<?> loopHandle;
 
-    // ── Timer ────────────────────────────────────────────────
     private int timeLeftTicks;
     private int eatMultiplier = 1;
 
     public GameServer(int port) throws IOException {
-        // Bind to 0.0.0.0 so ALL network interfaces (WiFi, Ethernet, etc.) are listened on.
-        // Without this, on some systems only loopback is reachable.
         serverSocket = new ServerSocket();
         serverSocket.setReuseAddress(true);
         serverSocket.bind(new InetSocketAddress("0.0.0.0", port), 50);
@@ -55,45 +50,36 @@ public class GameServer {
                     sock.close();
                     continue;
                 }
-                if (clients.size() >= GameConfig.MAX_PLAYERS) {
-                    sock.close();
-                    continue;
-                }
+                if (clients.size() >= GameConfig.MAX_PLAYERS) { sock.close(); continue; }
+
                 ClientHandler ch = new ClientHandler(sock, this, nextId.getAndIncrement());
                 clients.add(ch);
                 new Thread(ch, "Client-" + ch.getId()).start();
-                System.out.println("[Server] Player " + ch.getId() + " connected from " + sock.getInetAddress().getHostAddress());
+                System.out.println("[Server] Player " + ch.getId() + " connected");
             } catch (IOException e) {
                 if (!serverSocket.isClosed()) e.printStackTrace();
             }
         }
     }
 
-    // ── Called by ClientHandler when JOIN received ───────────
+    synchronized void onJoin(ClientHandler ch) { broadcastLobby(); }
 
-    synchronized void onJoin(ClientHandler ch) {
-        broadcastLobby();
-    }
+    synchronized void onRoleSelect(ClientHandler ch) { broadcastLobby(); }
 
-    // ── Called by ClientHandler when ROLE received ───────────
+    synchronized void onReady(ClientHandler ch) { broadcastLobby(); }
 
-    synchronized void onRoleSelect(ClientHandler ch) {
-        broadcastLobby();
-    }
-
-    // ── Called by ClientHandler when READY received ──────────
-
-    synchronized void onReady(ClientHandler ch) {
-        broadcastLobby();
-    }
-
-    // ── Called by host client to start the game ──────────────
-
-    synchronized void onStartGame() {
+    /** Only the host (first connected client) may start the game. */
+    synchronized void onStartGame(ClientHandler requester) {
         if (gameStarted) return;
+
+        // Validate host: must be the first client
+        if (clients.isEmpty() || clients.get(0).getId() != requester.getId()) {
+            requester.send(buildError("Only the host can start the game."));
+            return;
+        }
+
         if (clients.size() < GameConfig.MIN_PLAYERS) {
-            ClientHandler host = clients.isEmpty() ? null : clients.get(0);
-            if (host != null) host.send(buildError("Need at least " + GameConfig.MIN_PLAYERS + " players"));
+            requester.send(buildError("Need at least " + GameConfig.MIN_PLAYERS + " players to start."));
             return;
         }
 
@@ -109,9 +95,10 @@ public class GameServer {
         List<ClientHandler> chaserClients = new ArrayList<>();
 
         if (wantChomper.isEmpty()) {
-            Collections.shuffle(new ArrayList<>(clients));
-            chomperClient = clients.get(0);
-            for (int i = 1; i < clients.size(); i++) chaserClients.add(clients.get(i));
+            List<ClientHandler> shuffled = new ArrayList<>(clients);
+            Collections.shuffle(shuffled);
+            chomperClient = shuffled.get(0);
+            for (int i = 1; i < shuffled.size(); i++) chaserClients.add(shuffled.get(i));
         } else {
             Collections.shuffle(wantChomper);
             chomperClient = wantChomper.get(0);
@@ -122,6 +109,7 @@ public class GameServer {
         chomperClient.assignedRole = Role.CHOMPER;
         for (ClientHandler c : chaserClients) c.assignedRole = Role.CHASER;
 
+        // Send ROLE_ASSIGN to every client
         for (ClientHandler c : clients) {
             Map<String,Object> msg = new LinkedHashMap<>();
             msg.put("type","ROLE_ASSIGN");
@@ -149,17 +137,17 @@ public class GameServer {
         }
 
         gameStarted = true;
-        gameOver = false;
+        gameOver    = false;
 
+        // Send GAME_START — clients will show role reveal + countdown, then the game loop provides state
         Map<String,Object> startMsg = new LinkedHashMap<>();
         startMsg.put("type","GAME_START");
         broadcast(startMsg);
 
-        loopHandle = gameLoop.scheduleAtFixedRate(this::tick, 500, GameConfig.TICK_MS, TimeUnit.MILLISECONDS);
+        // Delay the actual loop to give clients time for their countdown animations (≈6 seconds)
+        loopHandle = gameLoop.scheduleAtFixedRate(this::tick, 6500, GameConfig.TICK_MS, TimeUnit.MILLISECONDS);
         System.out.println("[Server] Game started with " + clients.size() + " players");
     }
-
-    // ── Game loop tick ───────────────────────────────────────
 
     private synchronized void tick() {
         if (gameOver) return;
@@ -175,10 +163,7 @@ public class GameServer {
             else chaserCHs.add(ch);
         }
 
-        if (chomperCH == null) {
-            endGame("CHASERS", "CHOMPER_LEFT");
-            return;
-        }
+        if (chomperCH == null) { endGame("CHASERS","CHOMPER_LEFT"); return; }
 
         chomperCH.applyBufferedDirection();
         chomperCH.player.move(maze);
@@ -196,24 +181,14 @@ public class GameServer {
                     eatMultiplier *= 2;
                 } else {
                     chomperCH.player.loseLife();
-                    if (!chomperCH.player.isAlive()) {
-                        endGame("CHASERS", "NO_LIVES");
-                        return;
-                    }
+                    if (!chomperCH.player.isAlive()) { endGame("CHASERS","NO_LIVES"); return; }
                     for (ClientHandler cc : chaserCHs) cc.player.respawn();
                 }
             }
         }
 
-        if (maze.countRemainingPellets() == 0) {
-            endGame("CHOMPERS", "ALL_PELLETS");
-            return;
-        }
-
-        if (timeLeftTicks <= 0) {
-            endGame("CHASERS", "TIME_UP");
-            return;
-        }
+        if (maze.countRemainingPellets() == 0) { endGame("CHOMPERS","ALL_PELLETS"); return; }
+        if (timeLeftTicks <= 0)                { endGame("CHASERS","TIME_UP");      return; }
 
         broadcastState();
     }
@@ -232,10 +207,8 @@ public class GameServer {
 
     synchronized void onInput(ClientHandler ch, String direction) {
         if (ch.player == null) return;
-        try {
-            Direction d = Direction.valueOf(direction);
-            ch.bufferedDirection = d;
-        } catch (Exception ignored) {}
+        try { Direction d = Direction.valueOf(direction); ch.bufferedDirection = d; }
+        catch (Exception ignored) {}
     }
 
     synchronized void onDisconnect(ClientHandler ch) {
@@ -249,9 +222,7 @@ public class GameServer {
         broadcast(msg);
 
         if (gameStarted && !gameOver) {
-            if (ch.assignedRole == Role.CHOMPER) {
-                endGame("CHASERS","CHOMPER_LEFT");
-            }
+            if (ch.assignedRole == Role.CHOMPER) endGame("CHASERS","CHOMPER_LEFT");
         } else if (!gameStarted) {
             broadcastLobby();
         }
@@ -264,6 +235,7 @@ public class GameServer {
 
     void broadcastLobby() {
         List<Object> playerList = new ArrayList<>();
+        int hostId = clients.isEmpty() ? -1 : clients.get(0).getId();
         for (ClientHandler c : clients) {
             Map<String,Object> p = new LinkedHashMap<>();
             p.put("id", c.getId());
@@ -275,7 +247,7 @@ public class GameServer {
         Map<String,Object> msg = new LinkedHashMap<>();
         msg.put("type","LOBBY");
         msg.put("players", playerList);
-        msg.put("hostId", clients.isEmpty() ? -1 : clients.get(0).getId());
+        msg.put("hostId", hostId);
         broadcast(msg);
     }
 
@@ -295,17 +267,13 @@ public class GameServer {
             p.put("direction", c.player.getDirection().name());
             playerList.add(p);
         }
-
         List<Object> pelletList = new ArrayList<>();
         for (model.Pellet pel : maze.getPellets()) {
             Map<String,Object> p = new LinkedHashMap<>();
-            p.put("row", pel.getRow());
-            p.put("col", pel.getCol());
-            p.put("power", pel.isPower());
-            p.put("collected", pel.isCollected());
+            p.put("row", pel.getRow()); p.put("col", pel.getCol());
+            p.put("power", pel.isPower()); p.put("collected", pel.isCollected());
             pelletList.add(p);
         }
-
         Map<String,Object> msg = new LinkedHashMap<>();
         msg.put("type","STATE");
         msg.put("players", playerList);
@@ -316,14 +284,12 @@ public class GameServer {
 
     private Map<String,Object> buildError(String reason) {
         Map<String,Object> m = new LinkedHashMap<>();
-        m.put("type","ERROR");
-        m.put("reason",reason);
+        m.put("type","ERROR"); m.put("reason",reason);
         return m;
     }
 
     public static void main(String[] args) throws IOException {
-        int port = GameConfig.SERVER_PORT;
-        GameServer server = new GameServer(port);
+        GameServer server = new GameServer(GameConfig.SERVER_PORT);
         server.acceptLoop();
     }
 }

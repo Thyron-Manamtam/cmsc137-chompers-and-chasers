@@ -27,28 +27,21 @@ public class GameClient {
 
     public ClientGameState getState() { return state; }
 
-    /**
-     * Connects to the server. Always called from a background thread (not EDT).
-     * Uses a 5-second timeout so failed attempts fail fast instead of freezing for 20+ seconds.
-     */
     public boolean connect(String host, int port, String playerName) {
         System.out.println("[Client] Attempting to connect to " + host + ":" + port);
         try {
             socket = new Socket();
-            // 5-second timeout: if the host IP is wrong or firewall blocks it, we fail quickly
             socket.connect(new InetSocketAddress(host, port), 5000);
             System.out.println("[Client] Connected to " + host + ":" + port);
 
             out = new PrintWriter(new OutputStreamWriter(socket.getOutputStream()), true);
             state.myName = playerName;
 
-            // Send JOIN immediately after connecting
             Map<String,Object> join = new LinkedHashMap<>();
             join.put("type","JOIN");
             join.put("name", playerName);
             sendMsg(join);
 
-            // Start background reader thread
             BufferedReader in = new BufferedReader(new InputStreamReader(socket.getInputStream()));
             readerThread = new Thread(() -> {
                 try {
@@ -67,15 +60,12 @@ public class GameClient {
             return true;
 
         } catch (SocketTimeoutException e) {
-            System.out.println("[Client] Connection timed out to " + host + ":" + port);
             if (onError != null) onError.accept("Connection timed out.\nCheck the IP and make sure the host has started hosting.");
             return false;
         } catch (ConnectException e) {
-            System.out.println("[Client] Connection refused at " + host + ":" + port + " — " + e.getMessage());
             if (onError != null) onError.accept("Connection refused.\nMake sure the host clicked 'Start Server & Host' first.");
             return false;
         } catch (IOException e) {
-            System.out.println("[Client] Cannot connect: " + e.getMessage());
             if (onError != null) onError.accept("Cannot connect: " + e.getMessage());
             return false;
         }
@@ -94,6 +84,7 @@ public class GameClient {
 
             case "LOBBY":
                 parseLobbyPlayers(msg);
+                state.hostId = toInt(msg.get("hostId"));
                 if (onStateUpdate != null) onStateUpdate.accept(state);
                 break;
 
@@ -115,7 +106,7 @@ public class GameClient {
 
             case "GAME_OVER":
             case "WIN":
-                state.gameResult = (String) msg.get("winner");
+                state.gameResult   = (String) msg.get("winner");
                 state.resultReason = (String) msg.get("reason");
                 if (onStateUpdate != null) onStateUpdate.accept(state);
                 if (onGameOver != null) onGameOver.run();
@@ -142,8 +133,9 @@ public class GameClient {
             if (!(item instanceof Map)) continue;
             Map<String,Object> p = (Map<String,Object>)item;
             ClientGameState.PlayerInfo pi = new ClientGameState.PlayerInfo();
-            pi.id = toInt(p.get("id"));
-            pi.name = (String)p.getOrDefault("name","?");
+            pi.id    = toInt(p.get("id"));
+            pi.name  = (String)p.getOrDefault("name","?");
+            pi.ready = Boolean.TRUE.equals(p.get("ready"));
             pi.connected = true;
             String r = (String)p.getOrDefault("role","CHASER");
             try { pi.role = Role.valueOf(r); } catch (Exception ignored) {}
@@ -162,12 +154,12 @@ public class GameClient {
                 if (!(item instanceof Map)) continue;
                 Map<String,Object> p = (Map<String,Object>)item;
                 ClientGameState.PlayerInfo pi = new ClientGameState.PlayerInfo();
-                pi.id    = toInt(p.get("id"));
-                pi.name  = (String)p.getOrDefault("name","?");
-                pi.row   = toInt(p.get("row"));
-                pi.col   = toInt(p.get("col"));
-                pi.lives = toInt(p.get("lives"));
-                pi.score = toInt(p.get("score"));
+                pi.id      = toInt(p.get("id"));
+                pi.name    = (String)p.getOrDefault("name","?");
+                pi.row     = toInt(p.get("row"));
+                pi.col     = toInt(p.get("col"));
+                pi.lives   = toInt(p.get("lives"));
+                pi.score   = toInt(p.get("score"));
                 pi.powered = Boolean.TRUE.equals(p.get("powered"));
                 pi.direction = (String)p.getOrDefault("direction","NONE");
                 pi.connected = true;
@@ -184,8 +176,7 @@ public class GameClient {
                 if (!(item instanceof Map)) continue;
                 Map<String,Object> p = (Map<String,Object>)item;
                 ClientGameState.PelletInfo pi = new ClientGameState.PelletInfo();
-                pi.row = toInt(p.get("row"));
-                pi.col = toInt(p.get("col"));
+                pi.row = toInt(p.get("row")); pi.col = toInt(p.get("col"));
                 pi.power = Boolean.TRUE.equals(p.get("power"));
                 pi.collected = Boolean.TRUE.equals(p.get("collected"));
                 state.pellets.add(pi);
@@ -195,15 +186,13 @@ public class GameClient {
 
     public void sendInput(Direction d) {
         Map<String,Object> msg = new LinkedHashMap<>();
-        msg.put("type","INPUT");
-        msg.put("direction", d.name());
+        msg.put("type","INPUT"); msg.put("direction", d.name());
         sendMsg(msg);
     }
 
     public void sendRole(Role role) {
         Map<String,Object> msg = new LinkedHashMap<>();
-        msg.put("type","ROLE");
-        msg.put("preferred", role.name());
+        msg.put("type","ROLE"); msg.put("preferred", role.name());
         sendMsg(msg);
     }
 
