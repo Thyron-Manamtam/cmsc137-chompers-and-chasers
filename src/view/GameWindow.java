@@ -81,14 +81,14 @@ public class GameWindow extends JFrame {
     private void showHostScreen() {
         hostScreen = new HostScreen(this::startHosting, () -> showCard("mpMenu"));
         root.add(hostScreen, "hostScreen");
-        setSize2(420, 380);
+        setSize2(GameConfig.GAME_W, GameConfig.GAME_H);
         showCard("hostScreen");
     }
 
     private void showJoinScreen() {
         joinScreen = new JoinScreen(parts -> joinGame(parts[0], parts[1]), () -> showCard("mpMenu"));
         root.add(joinScreen, "joinScreen");
-        setSize2(420, 360);
+        setSize2(GameConfig.GAME_W, GameConfig.GAME_H);
         showCard("joinScreen");
     }
 
@@ -97,7 +97,7 @@ public class GameWindow extends JFrame {
     private void startSinglePlayer() {
         singlePlayerPanel = new GamePanel();
         root.add(singlePlayerPanel, "singlePlayer");
-        setSize2(GameConfig.MAZE_COLS * GameConfig.TILE_SIZE, GameConfig.MAZE_ROWS * GameConfig.TILE_SIZE);
+        setSize2(GameConfig.GAME_W, GameConfig.GAME_H);
         showCard("singlePlayer");
         singlePlayerPanel.requestFocusInWindow();
     }
@@ -220,7 +220,7 @@ public class GameWindow extends JFrame {
                 () -> { client.disconnect(); showCard("mpMenu"); }
             );
             root.add(lobbyScreen, "lobby");
-            setSize2(520, 440);
+            setSize2(GameConfig.GAME_W, GameConfig.GAME_H);
             showCard("lobby");
         });
     }
@@ -237,7 +237,7 @@ public class GameWindow extends JFrame {
             () -> showCard("lobby")
         );
         root.add(roleSelect, "roleSelect");
-        setSize2(520, 500);
+        setSize2(GameConfig.GAME_W, GameConfig.GAME_H);
         showCard("roleSelect");
         roleSelect.requestFocusInWindow();
     }
@@ -249,7 +249,7 @@ public class GameWindow extends JFrame {
             if (roleReveal != null) roleReveal.stopCountdown();
             roleReveal = new RoleRevealScreen(role, this::startMultiplayerGame);
             root.add(roleReveal, "roleReveal");
-            setSize2(520, 460);
+            setSize2(GameConfig.GAME_W, GameConfig.GAME_H);
             showCard("roleReveal");
             roleReveal.requestFocusInWindow();
         });
@@ -262,8 +262,7 @@ public class GameWindow extends JFrame {
             ClientGameState state = client.getState();
             mpGamePanel = new MultiplayerGamePanel(client, state, () -> {});
             root.add(mpGamePanel, "mpGame");
-            setSize2(GameConfig.MAZE_COLS * GameConfig.TILE_SIZE,
-                     GameConfig.MAZE_ROWS * GameConfig.TILE_SIZE + 30);
+            setSize2(GameConfig.GAME_W, GameConfig.GAME_H);
             showCard("mpGame");
             mpGamePanel.requestFocusInWindow();
 

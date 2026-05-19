@@ -8,6 +8,7 @@ public class MultiplayerMenuScreen extends JPanel {
     public MultiplayerMenuScreen(Runnable onHost, Runnable onJoin, Runnable onBack) {
         setLayout(new GridBagLayout());
         setBackground(Color.BLACK);
+        setPreferredSize(new Dimension(util.GameConfig.GAME_W, util.GameConfig.GAME_H));
         GridBagConstraints gbc = new GridBagConstraints();
         gbc.insets = new Insets(10,10,10,10);
         gbc.fill = GridBagConstraints.HORIZONTAL;

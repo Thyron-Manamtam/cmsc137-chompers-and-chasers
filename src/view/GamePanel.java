@@ -3,21 +3,22 @@ package view;
 import controller.GameController;
 import util.Direction;
 import util.GameState;
+import util.GameConfig;
 
 import javax.swing.*;
 import java.awt.*;
 import java.awt.event.*;
 
 public class GamePanel extends JPanel implements KeyListener {
-    private static final int TILE = 40;
-    private static final int COLS = 15;
-    private static final int ROWS = 15;
+    private static final int TILE = GameConfig.TILE_SIZE;
+    private static final int COLS = GameConfig.MAZE_COLS;
+    private static final int ROWS = GameConfig.MAZE_ROWS;
 
     private final GameController controller;
     private final GameRenderer renderer;
 
     public GamePanel() {
-        setPreferredSize(new Dimension(COLS * TILE, ROWS * TILE));
+        setPreferredSize(new Dimension(GameConfig.GAME_W, GameConfig.GAME_H));
         setBackground(Color.BLACK);
         setFocusable(true);
         addKeyListener(this);

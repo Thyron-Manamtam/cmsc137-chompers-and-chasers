@@ -8,7 +8,7 @@ public class MainMenuPanel extends JPanel {
     public MainMenuPanel(Runnable onPlay, Runnable onHowToPlay, Runnable onExit) {
         setLayout(new GridBagLayout());
         setBackground(Color.BLACK);
-        setPreferredSize(new Dimension(GameConfig.WINDOW_W, GameConfig.WINDOW_H));
+        setPreferredSize(new Dimension(GameConfig.GAME_W, GameConfig.GAME_H));
 
         GridBagConstraints gbc = new GridBagConstraints();
         gbc.insets = new Insets(10, 10, 10, 10);

@@ -11,6 +11,7 @@ public class HostScreen extends JPanel {
     public HostScreen(Consumer<String> onHost, Runnable onBack) {
         setLayout(new GridBagLayout());
         setBackground(Color.BLACK);
+        setPreferredSize(new Dimension(util.GameConfig.GAME_W, util.GameConfig.GAME_H));
         GridBagConstraints gbc = new GridBagConstraints();
         gbc.insets = new Insets(10,10,10,10);
         gbc.fill = GridBagConstraints.HORIZONTAL;

@@ -11,6 +11,7 @@ public class JoinScreen extends JPanel {
     public JoinScreen(Consumer<String[]> onConnect, Runnable onBack) {
         setLayout(new GridBagLayout());
         setBackground(Color.BLACK);
+        setPreferredSize(new Dimension(util.GameConfig.GAME_W, util.GameConfig.GAME_H));
         GridBagConstraints gbc = new GridBagConstraints();
         gbc.insets = new Insets(8,10,8,10);
         gbc.fill = GridBagConstraints.HORIZONTAL;

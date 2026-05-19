@@ -27,6 +27,7 @@ public class LobbyScreen extends JPanel {
 
         setLayout(new BorderLayout(10,10));
         setBackground(Color.BLACK);
+        setPreferredSize(new Dimension(util.GameConfig.GAME_W, util.GameConfig.GAME_H));
 
         JLabel title = new JLabel("MULTIPLAYER LOBBY", SwingConstants.CENTER);
         title.setFont(new Font("Courier New", Font.BOLD, 26));

@@ -10,7 +10,7 @@ public class HowToPlayScreen extends JPanel {
     public HowToPlayScreen(Runnable onBack) {
         setLayout(new BorderLayout());
         setBackground(Color.BLACK);
-        setPreferredSize(new Dimension(GameConfig.WINDOW_W, GameConfig.WINDOW_H));
+        setPreferredSize(new Dimension(GameConfig.GAME_W, GameConfig.GAME_H));
 
         // Title
         JLabel title = new JLabel("HOW TO PLAY", SwingConstants.CENTER);
