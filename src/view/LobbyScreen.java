@@ -55,13 +55,18 @@ public class LobbyScreen extends JPanel {
         scroll.setBorder(BorderFactory.createLineBorder(Color.DARK_GRAY));
         add(scroll, BorderLayout.CENTER);
 
-        JPanel bottom = new JPanel(new FlowLayout(FlowLayout.CENTER,15,10));
+        JPanel bottom = new JPanel(new BorderLayout(10,10));
         bottom.setBackground(Color.BLACK);
+        bottom.setBorder(BorderFactory.createEmptyBorder(10,10,10,10));
 
         statusLabel = new JLabel("Waiting for players...");
         statusLabel.setFont(new Font("Courier New", Font.PLAIN, 14));
         statusLabel.setForeground(Color.LIGHT_GRAY);
-        bottom.add(statusLabel);
+        statusLabel.setHorizontalAlignment(SwingConstants.CENTER);
+        bottom.add(statusLabel, BorderLayout.NORTH);
+
+        JPanel buttonPanel = new JPanel(new FlowLayout(FlowLayout.CENTER,15,0));
+        buttonPanel.setBackground(Color.BLACK);
 
         JButton backBtn = new JButton("Back");
         backBtn.setFont(new Font("Courier New", Font.BOLD, 15));
@@ -69,7 +74,7 @@ public class LobbyScreen extends JPanel {
         backBtn.setForeground(Color.WHITE);
         backBtn.setFocusPainted(false);
         backBtn.addActionListener(e -> onBack.run());
-        bottom.add(backBtn);
+        buttonPanel.add(backBtn);
 
         startBtn = new JButton("START GAME");
         startBtn.setFont(new Font("Courier New", Font.BOLD, 15));
@@ -78,8 +83,9 @@ public class LobbyScreen extends JPanel {
         startBtn.setFocusPainted(false);
         startBtn.setEnabled(false);
         startBtn.addActionListener(e -> onStart.run());
-        if (isHost) bottom.add(startBtn);
+        if (isHost) buttonPanel.add(startBtn);
 
+        bottom.add(buttonPanel, BorderLayout.CENTER);
         add(bottom, BorderLayout.SOUTH);
     }
 
