@@ -38,10 +38,13 @@ public class GameController {
 
     private final GamePanel panel;
     private final Timer     gameTimer;
+    private final Timer     renderTimer;
 
     public GameController(GamePanel panel) {
         this.panel     = panel;
         this.gameTimer = new Timer(GameConfig.TICK_MS, e -> tick());
+        // Render timer: ~60 fps for smooth interpolation between game ticks
+        this.renderTimer = new Timer(16, e -> panel.repaint()); // ~16ms ≈ 60fps
         initGame();
     }
 
@@ -72,7 +75,7 @@ public class GameController {
             case DEAD:    tickDead();    break;
             default:      break;
         }
-        panel.repaint();
+        // Don't call repaint() here anymore; renderTimer handles it at ~60 fps
     }
 
     private void tickPlaying() {
@@ -145,11 +148,13 @@ public class GameController {
     public void startGame() {
         initGame(); state = GameState.PLAYING;
         if (!gameTimer.isRunning()) gameTimer.start();
+        if (!renderTimer.isRunning()) renderTimer.start();
     }
 
     public void restartGame() {
         initGame(); state = GameState.PLAYING;
         if (!gameTimer.isRunning()) gameTimer.start();
+        if (!renderTimer.isRunning()) renderTimer.start();
         else panel.repaint();
     }
 
@@ -161,7 +166,10 @@ public class GameController {
 
     public void setPlayerDirection(Direction d) { if (state == GameState.PLAYING) player.setCurrentDirection(d); }
 
-    public void start() { gameTimer.start(); }
+    public void start() { 
+        gameTimer.start(); 
+        renderTimer.start(); 
+    }
 
     public Maze         getMaze()             { return maze; }
     public Player       getPlayer()           { return player; }

@@ -33,8 +33,8 @@ public class GameRenderer {
 
     // Pixel-interpolation speed: pixels per repaint call.
     // TICK_MS=150 ms; at ~60 fps repaints that's ~9 repaints per tick.
-    // One tile = T=40 px, so speed = 40/9 ≈ 5 px/repaint → arrives just in time.
-    private static final float INTERP_SPEED = 5.5f;
+    // One tile = T=40 px, so speed = 40/9 ≈ 4.4 px/repaint → smooth arrival at target.
+    private static final float INTERP_SPEED = 4.4f;
 
     public void render(Graphics2D g2, GameController ctrl, int w, int h) {
         animTick++;
