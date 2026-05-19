@@ -248,7 +248,16 @@ public class GameWindow extends JFrame {
     private void startMultiplayerGame() {
         SwingUtilities.invokeLater(() -> {
             ClientGameState state = client.getState();
-            mpGamePanel = new MultiplayerGamePanel(client, state, () -> {});
+            mpGamePanel = new MultiplayerGamePanel(client, state,
+                () -> {  // onEscape
+                    client.disconnect();
+                    showCard("mainMenu");
+                },
+                () -> {  // onPlayAgain
+                    client.disconnect();
+                    showCard("mainMenu");
+                }
+            );
             root.add(mpGamePanel, "mpGame");
             setSize2(GameConfig.GAME_W, GameConfig.GAME_H);
             showCard("mpGame");

@@ -6,6 +6,7 @@ import util.Role;
 import java.io.*;
 import java.net.*;
 import java.util.*;
+import java.util.function.BiConsumer;
 import java.util.function.Consumer;
 
 public class GameClient {
@@ -15,32 +16,37 @@ public class GameClient {
     private Thread readerThread;
 
     private final ClientGameState state = new ClientGameState();
-    private Consumer<ClientGameState> onStateUpdate;
-    private Consumer<String>          onError;
+    private Consumer<ClientGameState>  onStateUpdate;
+    private Consumer<String>           onError;
     private Runnable onGameStart;
     private Runnable onGameOver;
     private Runnable onCountdownStart;
     private Runnable onCountdownCancel;
+    private Runnable onReturnToLobby;          // fired when server sends LOBBY after a game
+    private Runnable onDisconnectedFromServer; // fired when the TCP connection drops
+    private BiConsumer<String,String> onChat;
 
-    /** Called with (senderName, text) whenever a CHAT message arrives. */
-    private java.util.function.BiConsumer<String,String> onChat;
-
-    public void setOnStateUpdate(Consumer<ClientGameState> cb)                 { this.onStateUpdate    = cb; }
-    public void setOnError(Consumer<String> cb)                                { this.onError          = cb; }
-    public void setOnGameStart(Runnable cb)                                    { this.onGameStart      = cb; }
-    public void setOnGameOver(Runnable cb)                                     { this.onGameOver       = cb; }
-    public void setOnCountdownStart(Runnable cb)                               { this.onCountdownStart = cb; }
-    public void setOnCountdownCancel(Runnable cb)                              { this.onCountdownCancel= cb; }
-    public void setOnChat(java.util.function.BiConsumer<String,String> cb)     { this.onChat           = cb; }
+    public void setOnStateUpdate(Consumer<ClientGameState> cb)      { this.onStateUpdate         = cb; }
+    public void setOnError(Consumer<String> cb)                     { this.onError               = cb; }
+    public void setOnGameStart(Runnable cb)                         { this.onGameStart           = cb; }
+    public void setOnGameOver(Runnable cb)                          { this.onGameOver            = cb; }
+    public void setOnCountdownStart(Runnable cb)                    { this.onCountdownStart      = cb; }
+    public void setOnCountdownCancel(Runnable cb)                   { this.onCountdownCancel     = cb; }
+    public void setOnReturnToLobby(Runnable cb)                     { this.onReturnToLobby       = cb; }
+    public void setOnDisconnectedFromServer(Runnable cb)            { this.onDisconnectedFromServer = cb; }
+    public void setOnChat(BiConsumer<String,String> cb)             { this.onChat                = cb; }
 
     public ClientGameState getState() { return state; }
 
+    // Whether a game has been started during this session (used to detect lobby-return)
+    private volatile boolean gameHasStarted = false;
+
     public boolean connect(String host, int port, String playerName) {
-        System.out.println("[Client] Attempting to connect to " + host + ":" + port);
+        System.out.println("[Client] Connecting to " + host + ":" + port);
         try {
             socket = new Socket();
             socket.connect(new InetSocketAddress(host, port), 5000);
-            System.out.println("[Client] Connected to " + host + ":" + port);
+            System.out.println("[Client] Connected");
 
             out = new PrintWriter(new OutputStreamWriter(socket.getOutputStream()), true);
             state.myName = playerName;
@@ -55,13 +61,13 @@ public class GameClient {
                 try {
                     String line;
                     while ((line = in.readLine()) != null) {
-                        System.out.println("[Client] Received: " + line);
                         handleMessage(NetworkUtils.fromJson(line));
                     }
                 } catch (IOException e) {
-                    System.out.println("[Client] Reader thread ended: " + e.getMessage());
-                    if (onError != null) onError.accept("Disconnected from server");
+                    System.out.println("[Client] Reader ended: " + e.getMessage());
                 }
+                // TCP connection closed
+                if (onDisconnectedFromServer != null) onDisconnectedFromServer.run();
             }, "ClientReader");
             readerThread.setDaemon(true);
             readerThread.start();
@@ -87,14 +93,21 @@ public class GameClient {
         switch (type) {
             case "WELCOME":
                 state.myId = toInt(msg.get("playerId"));
-                System.out.println("[Client] Got WELCOME, my ID = " + state.myId);
                 break;
 
             case "LOBBY":
                 parseLobbyPlayers(msg);
                 state.hostId       = toInt(msg.get("hostId"));
                 state.countingDown = false;
-                if (onStateUpdate != null) onStateUpdate.accept(state);
+                // If a game was already played this is a "return to lobby"
+                if (gameHasStarted) {
+                    gameHasStarted = false;
+                    state.gameResult   = null;
+                    state.resultReason = null;
+                    if (onReturnToLobby != null) onReturnToLobby.run();
+                } else {
+                    if (onStateUpdate != null) onStateUpdate.accept(state);
+                }
                 break;
 
             case "ROLE_ASSIGN":
@@ -104,8 +117,8 @@ public class GameClient {
                 break;
 
             case "COUNTDOWN_START":
-                state.countingDown      = true;
-                state.countdownSeconds  = toInt(msg.get("seconds"));
+                state.countingDown     = true;
+                state.countdownSeconds = toInt(msg.get("seconds"));
                 if (onStateUpdate != null) onStateUpdate.accept(state);
                 if (onCountdownStart != null) onCountdownStart.run();
                 break;
@@ -118,7 +131,7 @@ public class GameClient {
                 break;
 
             case "GAME_START":
-                System.out.println("[Client] Game starting!");
+                gameHasStarted = true;
                 state.countingDown = false;
                 if (onGameStart != null) onGameStart.run();
                 break;
@@ -130,9 +143,8 @@ public class GameClient {
 
             case "CHASER_ELIMINATED":
                 int elimId = toInt(msg.get("playerId"));
-                for (ClientGameState.PlayerInfo pi : state.players) {
+                for (ClientGameState.PlayerInfo pi : state.players)
                     if (pi.id == elimId) { pi.eliminated = true; break; }
-                }
                 if (onStateUpdate != null) onStateUpdate.accept(state);
                 break;
 
@@ -149,8 +161,8 @@ public class GameClient {
                 break;
 
             case "CHAT":
-                String sender = (String) msg.getOrDefault("sender", "?");
-                String text   = (String) msg.getOrDefault("text",   "");
+                String sender = (String) msg.getOrDefault("sender","?");
+                String text   = (String) msg.getOrDefault("text","");
                 if (onChat != null) onChat.accept(sender, text);
                 break;
 
@@ -185,7 +197,6 @@ public class GameClient {
     @SuppressWarnings("unchecked")
     private void parseGameState(Map<String,Object> msg) {
         state.timeLeft = toInt(msg.get("timeLeft"));
-
         state.players.clear();
         Object rawP = msg.get("players");
         if (rawP instanceof List) {
@@ -195,10 +206,8 @@ public class GameClient {
                 ClientGameState.PlayerInfo pi = new ClientGameState.PlayerInfo();
                 pi.id        = toInt(p.get("id"));
                 pi.name      = (String)p.getOrDefault("name","?");
-                pi.row       = toInt(p.get("row"));
-                pi.col       = toInt(p.get("col"));
-                pi.lives     = toInt(p.get("lives"));
-                pi.score     = toInt(p.get("score"));
+                pi.row       = toInt(p.get("row")); pi.col = toInt(p.get("col"));
+                pi.lives     = toInt(p.get("lives")); pi.score = toInt(p.get("score"));
                 pi.powered   = Boolean.TRUE.equals(p.get("powered"));
                 pi.direction = (String)p.getOrDefault("direction","NONE");
                 pi.connected = true;
@@ -208,7 +217,6 @@ public class GameClient {
                 state.players.add(pi);
             }
         }
-
         state.pellets.clear();
         Object rawPel = msg.get("pellets");
         if (rawPel instanceof List) {
@@ -216,8 +224,8 @@ public class GameClient {
                 if (!(item instanceof Map)) continue;
                 Map<String,Object> p = (Map<String,Object>)item;
                 ClientGameState.PelletInfo pi = new ClientGameState.PelletInfo();
-                pi.row       = toInt(p.get("row")); pi.col   = toInt(p.get("col"));
-                pi.power     = Boolean.TRUE.equals(p.get("power"));
+                pi.row = toInt(p.get("row")); pi.col = toInt(p.get("col"));
+                pi.power = Boolean.TRUE.equals(p.get("power"));
                 pi.collected = Boolean.TRUE.equals(p.get("collected"));
                 state.pellets.add(pi);
             }
@@ -250,21 +258,22 @@ public class GameClient {
         sendMsg(msg);
     }
 
-    /** Send a chat message to the server. */
     public void sendChat(String text) {
         if (text == null || text.isBlank()) return;
         Map<String,Object> msg = new LinkedHashMap<>();
-        msg.put("type","CHAT");
-        msg.put("text", text.trim());
+        msg.put("type","CHAT"); msg.put("text", text.trim());
+        sendMsg(msg);
+    }
+
+    /** Tell the server we want to go back to the lobby and play again. */
+    public void sendPlayAgain() {
+        Map<String,Object> msg = new LinkedHashMap<>();
+        msg.put("type","PLAY_AGAIN");
         sendMsg(msg);
     }
 
     private void sendMsg(Map<String,Object> msg) {
-        if (out != null) {
-            String json = NetworkUtils.toJson(msg);
-            System.out.println("[Client] Sending: " + json);
-            out.println(json);
-        }
+        if (out != null) out.println(NetworkUtils.toJson(msg));
     }
 
     public void disconnect() {

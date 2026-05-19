@@ -24,7 +24,8 @@ public class MultiplayerGamePanel extends JPanel implements KeyListener {
 
     private final GameClient client;
     private volatile ClientGameState state;
-    private Runnable onGameOver;
+    private final Runnable onEscape;       // called when ESC pressed (go to main menu)
+    private final Runnable onPlayAgain;    // called when "Back to Lobby" clicked
     private int animTick = 0;
 
     private int startCountdown = 3;
@@ -35,6 +36,9 @@ public class MultiplayerGamePanel extends JPanel implements KeyListener {
     private final Deque<String> chatMessages   = new ArrayDeque<>();
     private boolean chatOpen = false;
     private final StringBuilder chatInput = new StringBuilder();
+
+    // ── "Back to Lobby" overlay button ────────────────────────────────────────
+    private JButton backToLobbyBtn;
 
     // ── Maze grid ─────────────────────────────────────────────────────────────
     private static final int[][] GRID = {
@@ -59,15 +63,29 @@ public class MultiplayerGamePanel extends JPanel implements KeyListener {
         Color.YELLOW, new Color(255,80,80), Color.CYAN, Color.GREEN, Color.MAGENTA
     };
 
-    public MultiplayerGamePanel(GameClient client, ClientGameState initialState, Runnable onGameOver) {
-        this.client     = client;
-        this.state      = initialState;
-        this.onGameOver = onGameOver;
+    public MultiplayerGamePanel(GameClient client, ClientGameState initialState,
+                                Runnable onEscape, Runnable onPlayAgain) {
+        this.client      = client;
+        this.state       = initialState;
+        this.onEscape    = onEscape;
+        this.onPlayAgain = onPlayAgain;
 
+        setLayout(null); // absolute layout so we can place the overlay button
         setPreferredSize(new Dimension(COLS * T, ROWS * T + 30));
         setBackground(Color.BLACK);
         setFocusable(true);
         addKeyListener(this);
+
+        // "Back to Lobby" button – hidden until game ends
+        backToLobbyBtn = new JButton("Back to Lobby");
+        backToLobbyBtn.setFont(new Font("Courier New", Font.BOLD, 16));
+        backToLobbyBtn.setBackground(new Color(0, 150, 220));
+        backToLobbyBtn.setForeground(Color.WHITE);
+        backToLobbyBtn.setFocusPainted(false);
+        backToLobbyBtn.setVisible(false);
+        backToLobbyBtn.addActionListener(e -> onPlayAgain.run());
+        // Positioned at centre; exact bounds set in paintComponent once we know size
+        add(backToLobbyBtn);
 
         // Register chat callback
         client.setOnChat((sender, text) -> SwingUtilities.invokeLater(() -> {
@@ -75,6 +93,7 @@ public class MultiplayerGamePanel extends JPanel implements KeyListener {
             repaint();
         }));
 
+        // 3-2-1 countdown overlay
         Timer cdTimer = new Timer(1000, null);
         cdTimer.addActionListener(e -> {
             startCountdown--;
@@ -89,7 +108,17 @@ public class MultiplayerGamePanel extends JPanel implements KeyListener {
 
     public void updateState(ClientGameState newState) {
         this.state = newState;
-        if (newState.gameResult != null) SwingUtilities.invokeLater(onGameOver);
+        if (newState.gameResult != null) {
+            SwingUtilities.invokeLater(() -> {
+                // Show the "Back to Lobby" button centred on screen
+                int bw = 200, bh = 44;
+                int bx = (getWidth() - bw) / 2;
+                int by = getHeight() / 2 + 75;
+                backToLobbyBtn.setBounds(bx, by, bw, bh);
+                backToLobbyBtn.setVisible(true);
+                repaint();
+            });
+        }
     }
 
     // ── Chat helpers ──────────────────────────────────────────────────────────
@@ -120,10 +149,16 @@ public class MultiplayerGamePanel extends JPanel implements KeyListener {
         drawHUD(g2, s);
         drawChat(g2);
 
-        if (countingDown)           drawCountdownOverlay(g2, startCountdown);
+        if (countingDown)              drawCountdownOverlay(g2, startCountdown);
         else if (s.gameResult != null) drawResult(g2, s);
 
         if (chatOpen) drawChatInput(g2);
+
+        // Keep button centred if window was resized
+        if (backToLobbyBtn.isVisible()) {
+            int bw = 200, bh = 44;
+            backToLobbyBtn.setBounds((getWidth()-bw)/2, getHeight()/2+75, bw, bh);
+        }
     }
 
     private void drawMaze(Graphics2D g2) {
@@ -225,10 +260,9 @@ public class MultiplayerGamePanel extends JPanel implements KeyListener {
             g2.drawString(info,x,20);
             x += g2.getFontMetrics().stringWidth(info)+12;
         }
-        // chat hint
         if (!chatOpen) {
             g2.setFont(new Font("Courier New",Font.PLAIN,10)); g2.setColor(new Color(160,160,160));
-            g2.drawString("T=chat", getWidth()-52, getHeight()-4);
+            g2.drawString("T=chat  ESC=menu", getWidth()-110, getHeight()-4);
         }
     }
 
@@ -237,12 +271,12 @@ public class MultiplayerGamePanel extends JPanel implements KeyListener {
     private void drawChat(Graphics2D g2) {
         if (chatMessages.isEmpty()) return;
         long now = System.currentTimeMillis();
-        String[] msgs   = chatMessages.toArray(new String[0]);
-        Long[]   times  = chatTimestamps.toArray(new Long[0]);
-        int count   = msgs.length;
-        int panelH  = count * CHAT_LINE_H + 8;
-        int panelY  = getHeight() - 30 - panelH;
-        int panelX  = 6, panelW = 290;
+        String[] msgs  = chatMessages.toArray(new String[0]);
+        Long[]   times = chatTimestamps.toArray(new Long[0]);
+        int count  = msgs.length;
+        int panelH = count * CHAT_LINE_H + 8;
+        int panelY = getHeight() - 30 - panelH;
+        int panelX = 6, panelW = 290;
         g2.setColor(CHAT_BG); g2.fillRoundRect(panelX,panelY,panelW,panelH,8,8);
         g2.setFont(CHAT_FONT);
         FontMetrics fm = g2.getFontMetrics();
@@ -254,9 +288,8 @@ public class MultiplayerGamePanel extends JPanel implements KeyListener {
             while (display.length()>2 && fm.stringWidth(display+"…") > panelW-10)
                 display = display.substring(0,display.length()-1);
             if (!display.equals(msgs[i])) display += "…";
-            int textY = panelY + 6 + (i+1)*CHAT_LINE_H - 2;
             g2.setColor(new Color(255,255,255,(int)(alpha*220)));
-            g2.drawString(display, panelX+5, textY);
+            g2.drawString(display, panelX+5, panelY + 6 + (i+1)*CHAT_LINE_H - 2);
         }
     }
 
@@ -266,12 +299,11 @@ public class MultiplayerGamePanel extends JPanel implements KeyListener {
         g2.setColor(new Color(0,0,0,210)); g2.fillRect(0,barY,w,barH);
         g2.setColor(new Color(80,140,255)); g2.drawRect(0,barY,w-1,barH-1);
         g2.setFont(new Font("Courier New",Font.PLAIN,13));
-        g2.setColor(Color.CYAN);   g2.drawString("Say: ",6,barY+17);
+        g2.setColor(Color.CYAN);  g2.drawString("Say: ",6,barY+17);
         g2.setColor(Color.WHITE);
         String cursor = System.currentTimeMillis()%800<400 ? "|" : " ";
         g2.drawString(chatInput.toString()+cursor, 52, barY+17);
-        g2.setFont(new Font("Courier New",Font.PLAIN,10));
-        g2.setColor(new Color(120,120,120));
+        g2.setFont(new Font("Courier New",Font.PLAIN,10)); g2.setColor(new Color(120,120,120));
         g2.drawString("ENTER=send  ESC=cancel", w-162, barY+17);
     }
 
@@ -302,9 +334,9 @@ public class MultiplayerGamePanel extends JPanel implements KeyListener {
         String reason=friendlyReason(s.resultReason);
         g2.setFont(new Font("Courier New",Font.PLAIN,18)); g2.setColor(Color.WHITE);
         fm=g2.getFontMetrics(); g2.drawString(reason,(w-fm.stringWidth(reason))/2,h/2+20);
-        g2.setFont(new Font("Courier New",Font.PLAIN,14)); g2.setColor(Color.LIGHT_GRAY);
-        String hint="ESC to exit"; fm=g2.getFontMetrics();
-        g2.drawString(hint,(w-fm.stringWidth(hint))/2,h/2+60);
+        g2.setFont(new Font("Courier New",Font.PLAIN,13)); g2.setColor(Color.LIGHT_GRAY);
+        String hint="ESC = main menu"; fm=g2.getFontMetrics();
+        g2.drawString(hint,(w-fm.stringWidth(hint))/2,h/2+55);
     }
 
     private String friendlyReason(String raw) {
@@ -325,7 +357,7 @@ public class MultiplayerGamePanel extends JPanel implements KeyListener {
     public void keyPressed(KeyEvent e) {
         int code = e.getKeyCode();
         if (chatOpen) {
-            if      (code == KeyEvent.VK_ENTER) {
+            if (code == KeyEvent.VK_ENTER) {
                 String msg = chatInput.toString().trim();
                 if (!msg.isEmpty()) client.sendChat(msg);
                 chatInput.setLength(0); chatOpen = false; repaint();
@@ -335,7 +367,7 @@ public class MultiplayerGamePanel extends JPanel implements KeyListener {
                 if (chatInput.length()>0) chatInput.deleteCharAt(chatInput.length()-1);
                 repaint();
             }
-            return; // arrow keys must NOT fire while typing
+            return;
         }
         switch (code) {
             case KeyEvent.VK_UP:    if (!countingDown) client.sendInput(Direction.UP);    break;
@@ -343,7 +375,9 @@ public class MultiplayerGamePanel extends JPanel implements KeyListener {
             case KeyEvent.VK_LEFT:  if (!countingDown) client.sendInput(Direction.LEFT);  break;
             case KeyEvent.VK_RIGHT: if (!countingDown) client.sendInput(Direction.RIGHT); break;
             case KeyEvent.VK_T:     chatOpen=true; repaint(); break;
-            case KeyEvent.VK_ESCAPE: System.exit(0); break;
+            case KeyEvent.VK_ESCAPE:
+                if (onEscape != null) onEscape.run();
+                break;
         }
     }
 
@@ -351,9 +385,7 @@ public class MultiplayerGamePanel extends JPanel implements KeyListener {
     public void keyTyped(KeyEvent e) {
         if (!chatOpen) return;
         char c = e.getKeyChar();
-        if (c >= 32 && c < 127 && chatInput.length() < 100) {
-            chatInput.append(c); repaint();
-        }
+        if (c >= 32 && c < 127 && chatInput.length() < 100) { chatInput.append(c); repaint(); }
     }
 
     @Override public void keyReleased(KeyEvent e) {}

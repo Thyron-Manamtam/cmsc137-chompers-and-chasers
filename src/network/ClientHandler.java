@@ -85,9 +85,11 @@ public class ClientHandler implements Runnable {
                 if (dir != null) server.onInput(this, dir);
                 break;
             case "CHAT":
-                // Forward chat to server for broadcast
                 String text = (String) msg.get("text");
                 if (text != null && !text.isBlank()) server.onChat(this, text);
+                break;
+            case "PLAY_AGAIN":
+                server.onPlayAgain(this);
                 break;
             default:
                 break;
