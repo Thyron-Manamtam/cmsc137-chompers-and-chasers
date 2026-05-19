@@ -35,35 +35,47 @@ public class HowToPlayScreen extends JPanel {
             "You are the Chomper.\n" +
             "Collect ALL pellets to win!\n" +
             "Avoid the 4 AI Chasers chasing you.\n" +
-            "Orange Power Pellets let you eat Chasers!");
+            "Orange Power Pellets let you eat Chasers temporarily!");
 
         addSection(content, "MULTIPLAYER (LAN) — HOST",
             "Go to Play → Multiplayer → Host Game.\n" +
             "Enter your name, click \"Start Server & Host\".\n" +
             "Your IP address will be shown — share it!\n" +
-            "Wait for players to join in the Lobby.\n" +
-            "Click START GAME when everyone is ready.");
+            "Wait for players to join in the Lobby.");
 
         addSection(content, "MULTIPLAYER (LAN) — JOIN",
             "Go to Play → Multiplayer → Join Game.\n" +
             "Enter your name and the HOST'S IP address.\n" +
             "Click Connect and wait in the Lobby.");
 
-        addSection(content, "ROLE SELECT",
-            "Choose CHOMPER or CHASER before the game.\n" +
+        addSection(content, "ROLE SELECT (ALL PLAYERS)",
+            "Every player must choose CHOMPER or CHASER.\n" +
+            "Click READY — you cannot change your role after!\n" +
             "If multiple players pick Chomper, one is chosen randomly.\n" +
+            "Game automatically starts 3 seconds after ALL players are ready.\n" +
             "Supports 2–5 players: 1 Chomper + 1 to 4 Chasers.");
+
+        addSection(content, "POWER PELLETS (Orange)",
+            "When the Chomper eats an orange Power Pellet:\n" +
+            "  → Chasers turn blue and can be eaten!\n" +
+            "  → If Chomper touches a blue Chaser, that Chaser is ELIMINATED.\n" +
+            "  → Eliminated Chasers do NOT respawn — they are gone for good!\n" +
+            "  → Eating more Chasers in one power-up scores bonus points!");
 
         addSection(content, "GAMEPLAY",
             "All players share the same maze view.\n" +
-            "Chomper: collect all pellets to win!\n" +
-            "Chasers: catch the Chomper or survive 2 minutes.\n" +
-            "Timer: 2 minutes — if it expires, Chasers win.\n" +
-            "Orange power pellets let the Chomper eat Chasers!");
+            "Chomper: collect pellets, use power pellets wisely!\n" +
+            "Chasers: catch the Chomper or outlast the 2-minute timer.\n" +
+            "Timer: 2 minutes — if it expires, Chasers win.");
 
         addSection(content, "WIN CONDITIONS",
-            "Chompers win: All pellets collected.\n" +
-            "Chasers win:  Chomper loses all lives OR 2-min timer expires.");
+            "CHOMPERS WIN if:\n" +
+            "  → All pellets are collected, OR\n" +
+            "  → All Chasers are eaten (via Power Pellets)!\n" +
+            "\n" +
+            "CHASERS WIN if:\n" +
+            "  → Chomper loses all 3 lives, OR\n" +
+            "  → The 2-minute timer expires.");
 
         JScrollPane scroll = new JScrollPane(content);
         scroll.setBackground(Color.BLACK);
@@ -96,9 +108,21 @@ public class HowToPlayScreen extends JPanel {
         parent.add(headLabel);
 
         for (String line : body.split("\n")) {
+            // Empty line = small spacer
+            if (line.trim().isEmpty()) {
+                parent.add(Box.createVerticalStrut(6));
+                continue;
+            }
             JLabel lbl = new JLabel("  " + line);
             lbl.setFont(new Font("Courier New", Font.PLAIN, 14));
-            lbl.setForeground(new Color(210, 210, 210));
+            // Highlight key mechanic lines in orange
+            if (line.contains("→") || line.contains("ELIMINATED") || line.contains("do NOT respawn")) {
+                lbl.setForeground(new Color(255, 180, 60));
+            } else if (line.startsWith("CHOMPERS WIN") || line.startsWith("CHASERS WIN")) {
+                lbl.setForeground(new Color(140, 255, 140));
+            } else {
+                lbl.setForeground(new Color(210, 210, 210));
+            }
             lbl.setAlignmentX(LEFT_ALIGNMENT);
             parent.add(lbl);
         }

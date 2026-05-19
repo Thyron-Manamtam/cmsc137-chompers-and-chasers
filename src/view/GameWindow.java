@@ -1,6 +1,5 @@
 package view;
 
-import controller.GameController;
 import network.*;
 import util.*;
 
@@ -107,7 +106,6 @@ public class GameWindow extends JFrame {
     private void startHosting(String name) {
         isHost = true;
 
-        // 1. Create and bind the ServerSocket first (fast, no network round-trip)
         try {
             server = new GameServer(GameConfig.SERVER_PORT);
         } catch (Exception e) {
@@ -117,17 +115,12 @@ public class GameWindow extends JFrame {
             return;
         }
 
-        // 2. Start acceptLoop in background thread BEFORE connecting the client.
-        //    This fixes the race condition where the client tried to connect before
-        //    acceptLoop() was running, causing "connection refused" on the host itself.
         serverThread = new Thread(() -> server.acceptLoop(), "ServerAcceptLoop");
         serverThread.setDaemon(true);
         serverThread.start();
 
-        // 3. Give acceptLoop a moment to actually start listening
         try { Thread.sleep(200); } catch (InterruptedException ignored) {}
 
-        // 4. Now connect the host's own client in a background thread (not EDT)
         String displayName = name.isEmpty() ? "Host" : name;
         client = new GameClient();
         setupClientCallbacks();
@@ -135,7 +128,6 @@ public class GameWindow extends JFrame {
         showConnecting("Starting server...");
 
         new Thread(() -> {
-            // Host connects to their own server via localhost
             boolean ok = client.connect("127.0.0.1", GameConfig.SERVER_PORT, displayName);
             SwingUtilities.invokeLater(() -> {
                 if (!ok) {
@@ -156,8 +148,6 @@ public class GameWindow extends JFrame {
         String trimmedIp = ip.trim();
         String displayName = name.isEmpty() ? "Player" : name;
 
-        // Prevent joining your own IP — this would create a second server
-        // and connect to it alone, not to the host's server.
         String myIp = NetworkUtils.getLocalIP();
         if (trimmedIp.equals(myIp) || trimmedIp.equals("127.0.0.1") || trimmedIp.equals("localhost")) {
             JOptionPane.showMessageDialog(this,
@@ -174,7 +164,6 @@ public class GameWindow extends JFrame {
 
         showConnecting("Connecting to " + trimmedIp + "...");
 
-        // Connect off the EDT so the UI doesn't freeze
         new Thread(() -> {
             boolean ok = client.connect(trimmedIp, GameConfig.SERVER_PORT, displayName);
             SwingUtilities.invokeLater(() -> {
@@ -183,12 +172,9 @@ public class GameWindow extends JFrame {
                         "Cannot connect to " + trimmedIp + ":" + GameConfig.SERVER_PORT + "\n\n" +
                         "Checklist:\n" +
                         "  1. Did the host click 'Start Server & Host'?\n" +
-                        "  2. Is the IP correct? Host should see their IP on the Host screen.\n" +
-                        "  3. Are both laptops on the SAME WiFi network?\n" +
-                        "  4. Is Windows Firewall blocking Java? (most common cause)\n" +
-                        "     → Open Windows Defender Firewall\n" +
-                        "     → Click 'Allow an app through firewall'\n" +
-                        "     → Find Java and check both Private and Public boxes.",
+                        "  2. Is the IP correct?\n" +
+                        "  3. Are both devices on the SAME WiFi network?\n" +
+                        "  4. Is a firewall blocking Java?",
                         "Connection Failed", JOptionPane.ERROR_MESSAGE);
                     showCard("joinScreen");
                 } else {
@@ -216,7 +202,7 @@ public class GameWindow extends JFrame {
     private void showLobby(boolean host, String ip) {
         SwingUtilities.invokeLater(() -> {
             lobbyScreen = new LobbyScreen(host, client.getState().myId, ip,
-                this::showRoleSelect,
+                this::showRoleSelect,          // all players open role select
                 () -> { client.disconnect(); showCard("mpMenu"); }
             );
             root.add(lobbyScreen, "lobby");
@@ -225,14 +211,16 @@ public class GameWindow extends JFrame {
         });
     }
 
-    // ── Role Select ──────────────────────────────────────────
+    // ── Role Select — ALL players go here ───────────────────
 
     private void showRoleSelect() {
         roleSelect = new RoleSelectScreen(
             role -> {
+                // Send role preference and mark ready — server auto-starts when all ready
                 client.sendRole(role);
                 client.sendReady();
-                if (isHost) client.sendStart();
+                // Go back to lobby to see other players' ready status and countdown
+                showCard("lobby");
             },
             () -> showCard("lobby")
         );
@@ -282,6 +270,20 @@ public class GameWindow extends JFrame {
                 if (lobbyScreen != null && currentCard.equals("lobby")) {
                     lobbyScreen.updatePlayers(s.players);
                 }
+            });
+        });
+
+        client.setOnCountdownStart(() -> {
+            SwingUtilities.invokeLater(() -> {
+                // Switch back to lobby to show the countdown if we're on role select
+                if (!currentCard.equals("lobby")) showCard("lobby");
+                if (lobbyScreen != null) lobbyScreen.showCountdown(3);
+            });
+        });
+
+        client.setOnCountdownCancel(() -> {
+            SwingUtilities.invokeLater(() -> {
+                if (lobbyScreen != null) lobbyScreen.cancelCountdown();
             });
         });
 

@@ -14,6 +14,7 @@ public class ClientGameState {
         public boolean ready;
         public String direction;
         public boolean connected;
+        public boolean eliminated; // true = permanently eaten by chomper
     }
 
     public static class PelletInfo {
@@ -33,6 +34,10 @@ public class ClientGameState {
     public Role myRole = null;
     public String myName = "";
     public int hostId = -1;
+
+    // Lobby countdown state
+    public boolean countingDown = false;
+    public int countdownSeconds = 0;
 
     public PlayerInfo getMyInfo() {
         for (PlayerInfo p : players) if (p.id == myId) return p;

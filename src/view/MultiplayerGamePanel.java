@@ -54,7 +54,7 @@ public class MultiplayerGamePanel extends JPanel implements KeyListener {
         setFocusable(true);
         addKeyListener(this);
 
-        // Countdown timer: 3-2-1 GO
+        // 3-2-1 countdown overlay
         Timer cdTimer = new Timer(1000, null);
         cdTimer.addActionListener(e -> {
             startCountdown--;
@@ -117,6 +117,9 @@ public class MultiplayerGamePanel extends JPanel implements KeyListener {
                 int sz = (int)(14*pulse);
                 g2.setColor(new Color(255,100,50));
                 g2.fillOval(x+T/2-sz/2, y+T/2-sz/2, sz, sz);
+                // Glow ring
+                g2.setColor(new Color(255,180,80,80));
+                g2.fillOval(x+T/2-sz/2-4, y+T/2-sz/2-4, sz+8, sz+8);
             } else {
                 g2.setColor(new Color(255,220,140)); g2.fillOval(x+17,y+17,6,6);
             }
@@ -127,42 +130,91 @@ public class MultiplayerGamePanel extends JPanel implements KeyListener {
         int colorIdx = 0;
         for (ClientGameState.PlayerInfo p : s.players) {
             Color col = PLAYER_COLORS[colorIdx++ % PLAYER_COLORS.length];
+
+            // Skip eliminated chasers (draw a ghost/X marker instead)
+            if (p.eliminated) {
+                int x = p.col*T+2, y = p.row*T+2+30, sz = T-4;
+                g2.setColor(new Color(100,0,0,120));
+                g2.fillOval(x, y, sz, sz);
+                g2.setColor(new Color(200,0,0,180));
+                g2.setStroke(new BasicStroke(3));
+                g2.drawLine(x+4, y+4, x+sz-4, y+sz-4);
+                g2.drawLine(x+sz-4, y+4, x+4, y+sz-4);
+                g2.setStroke(new BasicStroke(1));
+                g2.setFont(new Font("Courier New", Font.PLAIN, 9));
+                g2.setColor(new Color(200,100,100));
+                g2.drawString(p.name, x, y - 2);
+                continue;
+            }
+
             int x = p.col*T+2, y = p.row*T+2+30, sz = T-4;
 
             if (p.role == util.Role.CHOMPER) {
                 int mouth = (animTick%2==0) ? 40 : 10;
                 double rot = 0;
                 if (p.direction != null) switch (p.direction) {
-                    case "LEFT": rot=180; break; case "UP": rot=270; break; case "DOWN": rot=90; break;
+                    case "LEFT": rot=180; break;
+                    case "UP":   rot=270; break;
+                    case "DOWN": rot=90;  break;
                 }
                 Graphics2D g3 = (Graphics2D)g2.create();
                 g3.setRenderingHint(RenderingHints.KEY_ANTIALIASING, RenderingHints.VALUE_ANTIALIAS_ON);
                 g3.translate(x+sz/2, y+sz/2);
                 g3.rotate(Math.toRadians(rot));
-                if (p.powered) { g3.setColor(new Color(255,120,0,120)); g3.fillOval(-sz/2-5,-sz/2-5,sz+10,sz+10); }
-                g3.setColor(col); g3.fillArc(-sz/2,-sz/2,sz,sz,(int)(mouth/2),(int)(360-mouth));
+                if (p.powered) {
+                    // Power-up glow aura
+                    int ga = 100 + (int)(80 * Math.sin(animTick * 0.3));
+                    g3.setColor(new Color(255,120,0,ga));
+                    g3.fillOval(-sz/2-6,-sz/2-6,sz+12,sz+12);
+                }
+                g3.setColor(col);
+                g3.fillArc(-sz/2,-sz/2,sz,sz,(int)(mouth/2),(int)(360-mouth));
+                // Eye
+                g3.setColor(new Color(15,15,15));
+                g3.fillOval(-2,-sz/2+5,5,5);
                 g3.dispose();
                 g2.setFont(new Font("Courier New", Font.PLAIN, 10));
-                g2.setColor(Color.WHITE); g2.drawString(p.name, x, y-2);
+                g2.setColor(Color.WHITE);
+                g2.drawString(p.name, x, y-2);
             } else {
+                // Chaser ghost body
                 Color body = p.powered ? new Color(30,60,200) : col;
                 g2.setColor(body);
-                g2.fillArc(x,y,sz,sz,0,180); g2.fillRect(x,y+sz/2,sz,sz/2);
+                g2.fillArc(x, y, sz, sz, 0, 180);
+                g2.fillRect(x, y+sz/2, sz, sz/2);
+
+                // Skirt wavy bottom
                 g2.setColor(new Color(5,5,20));
                 int segW = sz/3;
-                for (int i = 0; i < 3; i++) g2.fillArc(x+i*segW,y+sz-5,segW,10,0,-180);
-                g2.setColor(Color.WHITE);
-                g2.fillOval(x+5,y+6,8,8); g2.fillOval(x+sz-13,y+6,8,8);
-                g2.setColor(new Color(0,0,200));
-                g2.fillOval(x+7,y+8,4,4); g2.fillOval(x+sz-11,y+8,4,4);
+                for (int i = 0; i < 3; i++) g2.fillArc(x+i*segW, y+sz-5, segW, 10, 0, -180);
+
+                // Eyes
+                if (!p.powered) {
+                    g2.setColor(Color.WHITE);
+                    g2.fillOval(x+5, y+6, 8, 8);
+                    g2.fillOval(x+sz-13, y+6, 8, 8);
+                    g2.setColor(new Color(0,0,200));
+                    g2.fillOval(x+7, y+8, 4, 4);
+                    g2.fillOval(x+sz-11, y+8, 4, 4);
+                } else {
+                    // Frightened face
+                    g2.setColor(Color.WHITE);
+                    g2.fillOval(x+5, y+9, 6, 5);
+                    g2.fillOval(x+sz-11, y+9, 6, 5);
+                    g2.drawArc(x+6,  y+sz/2-2, 5, 5, 0, -180);
+                    g2.drawArc(x+12, y+sz/2-2, 5, 5, 0,  180);
+                    g2.drawArc(x+18, y+sz/2-2, 5, 5, 0, -180);
+                }
                 g2.setFont(new Font("Courier New", Font.PLAIN, 10));
-                g2.setColor(Color.WHITE); g2.drawString(p.name, x, y-2);
+                g2.setColor(Color.WHITE);
+                g2.drawString(p.name, x, y-2);
             }
         }
     }
 
     private void drawHUD(Graphics2D g2, ClientGameState s) {
         g2.setColor(new Color(0,0,0,200)); g2.fillRect(0,0,getWidth(),30);
+
         int mins = s.timeLeft/60, secs = s.timeLeft%60;
         String timerStr = String.format("TIME %d:%02d", mins, secs);
         g2.setFont(new Font("Courier New", Font.BOLD, 16));
@@ -170,13 +222,19 @@ public class MultiplayerGamePanel extends JPanel implements KeyListener {
         FontMetrics fm = g2.getFontMetrics();
         g2.drawString(timerStr, getWidth()/2 - fm.stringWidth(timerStr)/2, 20);
 
-        int x = 5; int colorIdx = 0;
+        int x = 5;
+        int colorIdx = 0;
         g2.setFont(new Font("Courier New", Font.BOLD, 12));
         for (ClientGameState.PlayerInfo p : s.players) {
             Color col = PLAYER_COLORS[colorIdx++ % PLAYER_COLORS.length];
-            g2.setColor(col);
+            if (p.eliminated) {
+                g2.setColor(new Color(150,60,60));
+            } else {
+                g2.setColor(col);
+            }
             String info = p.name + ":" + p.score;
             if (p.role == util.Role.CHOMPER) info += " ♥" + p.lives;
+            if (p.eliminated) info += " ✘";
             g2.drawString(info, x, 20);
             x += g2.getFontMetrics().stringWidth(info) + 12;
         }
@@ -200,22 +258,38 @@ public class MultiplayerGamePanel extends JPanel implements KeyListener {
 
     private void drawResult(Graphics2D g2, ClientGameState s) {
         int w = getWidth(), h = getHeight();
-        g2.setColor(new Color(0,0,0,180)); g2.fillRect(0,0,w,h);
+        g2.setColor(new Color(0,0,0,185)); g2.fillRect(0,0,w,h);
         g2.setFont(new Font("Courier New", Font.BOLD, 36));
-        String winner = "CHOMPERS".equals(s.gameResult) ? "CHOMPERS WIN!" : "CHASERS WIN!";
-        g2.setColor("CHOMPERS".equals(s.gameResult) ? Color.YELLOW : new Color(255,80,80));
+        boolean chomperWon = "CHOMPERS".equals(s.gameResult);
+        String winner = chomperWon ? "CHOMPERS WIN!" : "CHASERS WIN!";
+        g2.setColor(chomperWon ? Color.YELLOW : new Color(255,80,80));
         FontMetrics fm = g2.getFontMetrics();
-        g2.drawString(winner, (w-fm.stringWidth(winner))/2, h/2);
+        g2.drawString(winner, (w-fm.stringWidth(winner))/2, h/2 - 20);
+
+        // Human-readable reason
+        String reason = friendlyReason(s.resultReason);
         g2.setFont(new Font("Courier New", Font.PLAIN, 18));
         g2.setColor(Color.WHITE);
-        String sub = "Reason: " + s.resultReason;
         fm = g2.getFontMetrics();
-        g2.drawString(sub, (w-fm.stringWidth(sub))/2, h/2+35);
+        g2.drawString(reason, (w-fm.stringWidth(reason))/2, h/2+20);
+
         g2.setFont(new Font("Courier New", Font.PLAIN, 14));
         g2.setColor(Color.LIGHT_GRAY);
         String hint = "ESC to exit";
         fm = g2.getFontMetrics();
-        g2.drawString(hint, (w-fm.stringWidth(hint))/2, h/2+65);
+        g2.drawString(hint, (w-fm.stringWidth(hint))/2, h/2+60);
+    }
+
+    private String friendlyReason(String raw) {
+        if (raw == null) return "";
+        switch (raw) {
+            case "ALL_PELLETS":       return "Chomper collected all pellets!";
+            case "ALL_CHASERS_EATEN": return "Chomper ate all the Chasers!";
+            case "NO_LIVES":          return "Chomper lost all lives!";
+            case "TIME_UP":           return "Time ran out!";
+            case "CHOMPER_LEFT":      return "Chomper left the game!";
+            default:                  return raw;
+        }
     }
 
     @Override
