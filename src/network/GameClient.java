@@ -16,18 +16,22 @@ public class GameClient {
 
     private final ClientGameState state = new ClientGameState();
     private Consumer<ClientGameState> onStateUpdate;
-    private Consumer<String> onError;
+    private Consumer<String>          onError;
     private Runnable onGameStart;
     private Runnable onGameOver;
     private Runnable onCountdownStart;
     private Runnable onCountdownCancel;
 
-    public void setOnStateUpdate(Consumer<ClientGameState> cb)  { this.onStateUpdate    = cb; }
-    public void setOnError(Consumer<String> cb)                 { this.onError          = cb; }
-    public void setOnGameStart(Runnable cb)                     { this.onGameStart      = cb; }
-    public void setOnGameOver(Runnable cb)                      { this.onGameOver       = cb; }
-    public void setOnCountdownStart(Runnable cb)                { this.onCountdownStart = cb; }
-    public void setOnCountdownCancel(Runnable cb)               { this.onCountdownCancel= cb; }
+    /** Called with (senderName, text) whenever a CHAT message arrives. */
+    private java.util.function.BiConsumer<String,String> onChat;
+
+    public void setOnStateUpdate(Consumer<ClientGameState> cb)                 { this.onStateUpdate    = cb; }
+    public void setOnError(Consumer<String> cb)                                { this.onError          = cb; }
+    public void setOnGameStart(Runnable cb)                                    { this.onGameStart      = cb; }
+    public void setOnGameOver(Runnable cb)                                     { this.onGameOver       = cb; }
+    public void setOnCountdownStart(Runnable cb)                               { this.onCountdownStart = cb; }
+    public void setOnCountdownCancel(Runnable cb)                              { this.onCountdownCancel= cb; }
+    public void setOnChat(java.util.function.BiConsumer<String,String> cb)     { this.onChat           = cb; }
 
     public ClientGameState getState() { return state; }
 
@@ -88,7 +92,7 @@ public class GameClient {
 
             case "LOBBY":
                 parseLobbyPlayers(msg);
-                state.hostId = toInt(msg.get("hostId"));
+                state.hostId       = toInt(msg.get("hostId"));
                 state.countingDown = false;
                 if (onStateUpdate != null) onStateUpdate.accept(state);
                 break;
@@ -100,14 +104,14 @@ public class GameClient {
                 break;
 
             case "COUNTDOWN_START":
-                state.countingDown = true;
-                state.countdownSeconds = toInt(msg.get("seconds"));
+                state.countingDown      = true;
+                state.countdownSeconds  = toInt(msg.get("seconds"));
                 if (onStateUpdate != null) onStateUpdate.accept(state);
                 if (onCountdownStart != null) onCountdownStart.run();
                 break;
 
             case "COUNTDOWN_CANCEL":
-                state.countingDown = false;
+                state.countingDown     = false;
                 state.countdownSeconds = 0;
                 if (onStateUpdate != null) onStateUpdate.accept(state);
                 if (onCountdownCancel != null) onCountdownCancel.run();
@@ -125,7 +129,6 @@ public class GameClient {
                 break;
 
             case "CHASER_ELIMINATED":
-                // Mark the chaser as eliminated in our player list
                 int elimId = toInt(msg.get("playerId"));
                 for (ClientGameState.PlayerInfo pi : state.players) {
                     if (pi.id == elimId) { pi.eliminated = true; break; }
@@ -143,6 +146,12 @@ public class GameClient {
 
             case "DISCONNECT":
                 if (onStateUpdate != null) onStateUpdate.accept(state);
+                break;
+
+            case "CHAT":
+                String sender = (String) msg.getOrDefault("sender", "?");
+                String text   = (String) msg.getOrDefault("text",   "");
+                if (onChat != null) onChat.accept(sender, text);
                 break;
 
             case "ERROR":
@@ -165,7 +174,7 @@ public class GameClient {
             pi.id    = toInt(p.get("id"));
             pi.name  = (String)p.getOrDefault("name","?");
             pi.ready = Boolean.TRUE.equals(p.get("ready"));
-            pi.connected = true;
+            pi.connected  = true;
             pi.eliminated = false;
             String r = (String)p.getOrDefault("role","CHASER");
             try { pi.role = Role.valueOf(r); } catch (Exception ignored) {}
@@ -184,15 +193,15 @@ public class GameClient {
                 if (!(item instanceof Map)) continue;
                 Map<String,Object> p = (Map<String,Object>)item;
                 ClientGameState.PlayerInfo pi = new ClientGameState.PlayerInfo();
-                pi.id       = toInt(p.get("id"));
-                pi.name     = (String)p.getOrDefault("name","?");
-                pi.row      = toInt(p.get("row"));
-                pi.col      = toInt(p.get("col"));
-                pi.lives    = toInt(p.get("lives"));
-                pi.score    = toInt(p.get("score"));
-                pi.powered  = Boolean.TRUE.equals(p.get("powered"));
-                pi.direction= (String)p.getOrDefault("direction","NONE");
-                pi.connected= true;
+                pi.id        = toInt(p.get("id"));
+                pi.name      = (String)p.getOrDefault("name","?");
+                pi.row       = toInt(p.get("row"));
+                pi.col       = toInt(p.get("col"));
+                pi.lives     = toInt(p.get("lives"));
+                pi.score     = toInt(p.get("score"));
+                pi.powered   = Boolean.TRUE.equals(p.get("powered"));
+                pi.direction = (String)p.getOrDefault("direction","NONE");
+                pi.connected = true;
                 pi.eliminated = Boolean.TRUE.equals(p.get("eliminated"));
                 String r = (String)p.getOrDefault("role","CHASER");
                 try { pi.role = Role.valueOf(r); } catch (Exception ignored) {}
@@ -207,13 +216,15 @@ public class GameClient {
                 if (!(item instanceof Map)) continue;
                 Map<String,Object> p = (Map<String,Object>)item;
                 ClientGameState.PelletInfo pi = new ClientGameState.PelletInfo();
-                pi.row = toInt(p.get("row")); pi.col = toInt(p.get("col"));
-                pi.power = Boolean.TRUE.equals(p.get("power"));
+                pi.row       = toInt(p.get("row")); pi.col   = toInt(p.get("col"));
+                pi.power     = Boolean.TRUE.equals(p.get("power"));
                 pi.collected = Boolean.TRUE.equals(p.get("collected"));
                 state.pellets.add(pi);
             }
         }
     }
+
+    // ── Sending ───────────────────────────────────────────────────────────────
 
     public void sendInput(Direction d) {
         Map<String,Object> msg = new LinkedHashMap<>();
@@ -236,6 +247,15 @@ public class GameClient {
     public void sendStart() {
         Map<String,Object> msg = new LinkedHashMap<>();
         msg.put("type","START");
+        sendMsg(msg);
+    }
+
+    /** Send a chat message to the server. */
+    public void sendChat(String text) {
+        if (text == null || text.isBlank()) return;
+        Map<String,Object> msg = new LinkedHashMap<>();
+        msg.put("type","CHAT");
+        msg.put("text", text.trim());
         sendMsg(msg);
     }
 

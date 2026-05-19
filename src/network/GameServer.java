@@ -19,12 +19,11 @@ public class GameServer {
 
     // Countdown state
     private volatile boolean countingDown = false;
-    private int countdownTicks = 0; // ticks remaining in 3-second countdown
-    private static final int COUNTDOWN_TICKS = 12; // 3 seconds at 250ms/tick
+    private int countdownTicks = 0;
+    private static final int COUNTDOWN_TICKS = 12; // 3 seconds at 250 ms/tick
 
     private Maze maze;
     private final Map<Integer, Player> players = new ConcurrentHashMap<>();
-    // Track which client IDs have been permanently eaten
     private final Set<Integer> eliminatedChasers = ConcurrentHashMap.newKeySet();
 
     private final ScheduledExecutorService gameLoop = Executors.newSingleThreadScheduledExecutor();
@@ -70,41 +69,31 @@ public class GameServer {
         }
     }
 
-    synchronized void onJoin(ClientHandler ch) { broadcastLobby(); }
-
+    synchronized void onJoin(ClientHandler ch)       { broadcastLobby(); }
     synchronized void onRoleSelect(ClientHandler ch) { broadcastLobby(); }
 
-    /** Called when any player marks themselves ready. Auto-starts countdown when all ready. */
     synchronized void onReady(ClientHandler ch) {
         broadcastLobby();
         checkAllReady();
     }
 
-    /** Check if all players are ready and enough players exist — if so, start countdown. */
     private void checkAllReady() {
         if (gameStarted || countingDown) return;
         if (clients.size() < GameConfig.MIN_PLAYERS) return;
-
-        for (ClientHandler c : clients) {
-            if (!c.ready) return;
-        }
-
-        // All players are ready — start server-side countdown
+        for (ClientHandler c : clients) { if (!c.ready) return; }
         startCountdown();
     }
 
     private void startCountdown() {
-        countingDown = true;
-        countdownTicks = COUNTDOWN_TICKS;
+        countingDown    = true;
+        countdownTicks  = COUNTDOWN_TICKS;
         System.out.println("[Server] All players ready — starting 3-second countdown");
 
-        // Broadcast countdown start to all clients
         Map<String,Object> msg = new LinkedHashMap<>();
-        msg.put("type", "COUNTDOWN_START");
+        msg.put("type","COUNTDOWN_START");
         msg.put("seconds", 3);
         broadcast(msg);
 
-        // Schedule the countdown tick loop
         loopHandle = gameLoop.scheduleAtFixedRate(this::tickCountdown, GameConfig.TICK_MS, GameConfig.TICK_MS, TimeUnit.MILLISECONDS);
     }
 
@@ -112,41 +101,31 @@ public class GameServer {
         countdownTicks--;
         if (countdownTicks <= 0) {
             if (loopHandle != null) loopHandle.cancel(false);
-            loopHandle = null;
-            countingDown = false;
+            loopHandle     = null;
+            countingDown   = false;
             startGameInternal();
         }
     }
 
-    /** Only the host (first connected client) may force-start the game (kept for compatibility). */
     synchronized void onStartGame(ClientHandler requester) {
         if (gameStarted || countingDown) return;
-
         if (clients.isEmpty() || clients.get(0).getId() != requester.getId()) {
             requester.send(buildError("Only the host can force-start the game."));
             return;
         }
-
         if (clients.size() < GameConfig.MIN_PLAYERS) {
             requester.send(buildError("Need at least " + GameConfig.MIN_PLAYERS + " players to start."));
             return;
         }
-
-        // Check all are ready
         for (ClientHandler c : clients) {
-            if (!c.ready) {
-                requester.send(buildError("Not all players are ready yet."));
-                return;
-            }
+            if (!c.ready) { requester.send(buildError("Not all players are ready yet.")); return; }
         }
-
         startGameInternal();
     }
 
     private synchronized void startGameInternal() {
         if (gameStarted) return;
 
-        // Resolve roles
         List<ClientHandler> wantChomper = new ArrayList<>();
         List<ClientHandler> wantChaser  = new ArrayList<>();
         for (ClientHandler c : clients) {
@@ -172,7 +151,6 @@ public class GameServer {
         chomperClient.assignedRole = Role.CHOMPER;
         for (ClientHandler c : chaserClients) c.assignedRole = Role.CHASER;
 
-        // Send ROLE_ASSIGN to every client
         for (ClientHandler c : clients) {
             Map<String,Object> msg = new LinkedHashMap<>();
             msg.put("type","ROLE_ASSIGN");
@@ -180,38 +158,39 @@ public class GameServer {
             c.send(msg);
         }
 
-        // Init game model
         maze = new Maze();
         players.clear();
         eliminatedChasers.clear();
-        eatMultiplier = 1;
-        timeLeftTicks = (GameConfig.GAME_DURATION_S * 1000) / GameConfig.TICK_MS;
+        eatMultiplier   = 1;
+        timeLeftTicks   = (GameConfig.GAME_DURATION_S * 1000) / GameConfig.TICK_MS;
 
         int[][] chaserSpawns = {{1,1},{1,13},{13,1},{13,13}};
         Player chomperPlayer = new Player(7, 7, Role.CHOMPER);
         players.put(chomperClient.getId(), chomperPlayer);
-        chomperClient.player = chomperPlayer;
+        chomperClient.player  = chomperPlayer;
+        chomperClient.prevRow = 7; chomperClient.prevCol = 7;
 
         for (int i = 0; i < chaserClients.size(); i++) {
             ClientHandler cc = chaserClients.get(i);
             int[] sp = chaserSpawns[i % chaserSpawns.length];
             Player cp = new Player(sp[0], sp[1], Role.CHASER);
             players.put(cc.getId(), cp);
-            cc.player = cp;
+            cc.player  = cp;
+            cc.prevRow = sp[0]; cc.prevCol = sp[1];
         }
 
         gameStarted = true;
         gameOver    = false;
 
-        // Send GAME_START
         Map<String,Object> startMsg = new LinkedHashMap<>();
         startMsg.put("type","GAME_START");
         broadcast(startMsg);
 
-        // Start the game loop after a small delay for clients to show role reveal
         loopHandle = gameLoop.scheduleAtFixedRate(this::tick, 4000, GameConfig.TICK_MS, TimeUnit.MILLISECONDS);
         System.out.println("[Server] Game started with " + clients.size() + " players");
     }
+
+    // ── Game tick ────────────────────────────────────────────────────────────
 
     private synchronized void tick() {
         if (gameOver) return;
@@ -229,6 +208,11 @@ public class GameServer {
 
         if (chomperCH == null) { endGame("CHASERS","CHOMPER_LEFT"); return; }
 
+        // ── Snapshot positions BEFORE moving ────────────────────────────────
+        chomperCH.snapshotPosition();
+        for (ClientHandler ch : chaserCHs) ch.snapshotPosition();
+
+        // ── Apply movement ───────────────────────────────────────────────────
         chomperCH.applyBufferedDirection();
         chomperCH.player.move(maze);
 
@@ -238,34 +222,47 @@ public class GameServer {
             if (!ch.connected) continue;
             ch.applyBufferedDirection();
             ch.player.move(maze);
+        }
 
-            if (ch.player.collidesWith(chomperCH.player)) {
-                if (chomperPowered) {
-                    // Chaser is permanently eliminated — no respawn
-                    eliminatedChasers.add(ch.getId());
-                    ch.player.loseLife(); // mark as dead via lives=0
-                    chomperCH.player.addScore(GameConfig.SCORE_EAT_BASE * eatMultiplier);
-                    eatMultiplier *= 2;
+        // ── Collision detection (same-cell + cross-swap) ─────────────────────
+        int chomperRow = chomperCH.player.getRow();
+        int chomperCol = chomperCH.player.getCol();
 
-                    // Notify that this chaser was eliminated
-                    Map<String,Object> elimMsg = new LinkedHashMap<>();
-                    elimMsg.put("type", "CHASER_ELIMINATED");
-                    elimMsg.put("playerId", ch.getId());
-                    broadcast(elimMsg);
+        for (ClientHandler ch : chaserCHs) {
+            if (!ch.connected || eliminatedChasers.contains(ch.getId())) continue;
 
-                    // Check if all chasers are eliminated
-                    if (allChasersEliminated()) {
-                        endGame("CHOMPERS", "ALL_CHASERS_EATEN");
-                        return;
-                    }
-                } else {
-                    chomperCH.player.loseLife();
-                    if (!chomperCH.player.isAlive()) { endGame("CHASERS","NO_LIVES"); return; }
-                    // Respawn only active chasers
-                    for (ClientHandler cc : chaserCHs) {
-                        if (!eliminatedChasers.contains(cc.getId())) cc.player.respawn();
-                    }
+            boolean sameCellNow = (ch.player.getRow() == chomperRow &&
+                                   ch.player.getCol() == chomperCol);
+
+            // Cross-swap: chaser was where chomper is now, and chomper was where chaser is now
+            boolean crossSwap  = (ch.prevRow == chomperRow    && ch.prevCol == chomperCol &&
+                                  chomperCH.prevRow == ch.player.getRow() &&
+                                  chomperCH.prevCol == ch.player.getCol());
+
+            if (!sameCellNow && !crossSwap) continue;
+
+            // Collision confirmed – resolve it
+            if (chomperCH.player.isPowered()) {
+                eliminatedChasers.add(ch.getId());
+                ch.player.loseLife();
+                chomperCH.player.addScore(GameConfig.SCORE_EAT_BASE * eatMultiplier);
+                eatMultiplier *= 2;
+
+                Map<String,Object> elimMsg = new LinkedHashMap<>();
+                elimMsg.put("type","CHASER_ELIMINATED");
+                elimMsg.put("playerId", ch.getId());
+                broadcast(elimMsg);
+
+                if (allChasersEliminated()) { endGame("CHOMPERS","ALL_CHASERS_EATEN"); return; }
+            } else {
+                chomperCH.player.loseLife();
+                if (!chomperCH.player.isAlive()) { endGame("CHASERS","NO_LIVES"); return; }
+                for (ClientHandler cc : chaserCHs) {
+                    if (!eliminatedChasers.contains(cc.getId())) cc.player.respawn();
                 }
+                chomperCH.player.respawn();      // respawn chomper too
+                // Break so we only process one collision event per tick
+                break;
             }
         }
 
@@ -275,11 +272,29 @@ public class GameServer {
         broadcastState();
     }
 
+    // ── Chat ─────────────────────────────────────────────────────────────────
+
+    synchronized void onChat(ClientHandler sender, String text) {
+        // Sanitise: strip leading/trailing whitespace, cap length
+        String safe = text.trim();
+        if (safe.length() > 120) safe = safe.substring(0, 120);
+        if (safe.isEmpty()) return;
+
+        Map<String,Object> msg = new LinkedHashMap<>();
+        msg.put("type",     "CHAT");
+        msg.put("senderId", sender.getId());
+        msg.put("sender",   sender.name);
+        msg.put("text",     safe);
+        broadcast(msg);
+        System.out.println("[Chat] " + sender.name + ": " + safe);
+    }
+
+    // ── Helpers ──────────────────────────────────────────────────────────────
+
     private boolean allChasersEliminated() {
         for (ClientHandler ch : clients) {
-            if (ch.assignedRole == Role.CHASER && ch.connected && !eliminatedChasers.contains(ch.getId())) {
+            if (ch.assignedRole == Role.CHASER && ch.connected && !eliminatedChasers.contains(ch.getId()))
                 return false;
-            }
         }
         return true;
     }
@@ -289,7 +304,7 @@ public class GameServer {
         if (loopHandle != null) loopHandle.cancel(false);
 
         Map<String,Object> msg = new LinkedHashMap<>();
-        msg.put("type", winner.equals("CHOMPERS") ? "WIN" : "GAME_OVER");
+        msg.put("type",   winner.equals("CHOMPERS") ? "WIN" : "GAME_OVER");
         msg.put("winner", winner);
         msg.put("reason", reason);
         broadcast(msg);
@@ -317,13 +332,12 @@ public class GameServer {
         } else if (!gameStarted && !countingDown) {
             broadcastLobby();
         } else if (countingDown) {
-            // If someone disconnects during countdown and we drop below min players, cancel
             if (clients.size() < GameConfig.MIN_PLAYERS) {
                 countingDown = false;
                 if (loopHandle != null) { loopHandle.cancel(false); loopHandle = null; }
                 Map<String,Object> cancel = new LinkedHashMap<>();
-                cancel.put("type", "COUNTDOWN_CANCEL");
-                cancel.put("reason", "A player disconnected");
+                cancel.put("type","COUNTDOWN_CANCEL");
+                cancel.put("reason","A player disconnected");
                 broadcast(cancel);
                 broadcastLobby();
             }
@@ -340,16 +354,16 @@ public class GameServer {
         int hostId = clients.isEmpty() ? -1 : clients.get(0).getId();
         for (ClientHandler c : clients) {
             Map<String,Object> p = new LinkedHashMap<>();
-            p.put("id", c.getId());
-            p.put("name", c.name);
-            p.put("role", c.preferredRole != null ? c.preferredRole.name() : "NONE");
+            p.put("id",    c.getId());
+            p.put("name",  c.name);
+            p.put("role",  c.preferredRole != null ? c.preferredRole.name() : "NONE");
             p.put("ready", c.ready);
             playerList.add(p);
         }
         Map<String,Object> msg = new LinkedHashMap<>();
         msg.put("type","LOBBY");
         msg.put("players", playerList);
-        msg.put("hostId", hostId);
+        msg.put("hostId",  hostId);
         broadcast(msg);
     }
 
@@ -358,23 +372,25 @@ public class GameServer {
         for (ClientHandler c : clients) {
             if (c.player == null) continue;
             Map<String,Object> p = new LinkedHashMap<>();
-            p.put("id", c.getId());
-            p.put("name", c.name);
-            p.put("role", c.assignedRole != null ? c.assignedRole.name() : "CHASER");
-            p.put("row", c.player.getRow());
-            p.put("col", c.player.getCol());
-            p.put("lives", c.player.getLives());
-            p.put("score", c.player.getScore());
-            p.put("powered", c.player.isPowered());
-            p.put("direction", c.player.getDirection().name());
+            p.put("id",         c.getId());
+            p.put("name",       c.name);
+            p.put("role",       c.assignedRole != null ? c.assignedRole.name() : "CHASER");
+            p.put("row",        c.player.getRow());
+            p.put("col",        c.player.getCol());
+            p.put("lives",      c.player.getLives());
+            p.put("score",      c.player.getScore());
+            p.put("powered",    c.player.isPowered());
+            p.put("direction",  c.player.getDirection().name());
             p.put("eliminated", eliminatedChasers.contains(c.getId()));
             playerList.add(p);
         }
         List<Object> pelletList = new ArrayList<>();
         for (model.Pellet pel : maze.getPellets()) {
             Map<String,Object> p = new LinkedHashMap<>();
-            p.put("row", pel.getRow()); p.put("col", pel.getCol());
-            p.put("power", pel.isPower()); p.put("collected", pel.isCollected());
+            p.put("row",       pel.getRow());
+            p.put("col",       pel.getCol());
+            p.put("power",     pel.isPower());
+            p.put("collected", pel.isCollected());
             pelletList.add(p);
         }
         Map<String,Object> msg = new LinkedHashMap<>();
@@ -387,7 +403,7 @@ public class GameServer {
 
     private Map<String,Object> buildError(String reason) {
         Map<String,Object> m = new LinkedHashMap<>();
-        m.put("type","ERROR"); m.put("reason",reason);
+        m.put("type","ERROR"); m.put("reason", reason);
         return m;
     }
 

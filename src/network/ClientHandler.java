@@ -25,6 +25,10 @@ public class ClientHandler implements Runnable {
     public Player player = null;
     public volatile Direction bufferedDirection = Direction.NONE;
 
+    // Previous position – used for cross-swap collision detection
+    public volatile int prevRow = -1;
+    public volatile int prevCol = -1;
+
     public ClientHandler(Socket socket, GameServer server, int id) {
         this.socket = socket;
         this.server = server;
@@ -74,12 +78,16 @@ public class ClientHandler implements Runnable {
                 server.onReady(this);
                 break;
             case "START":
-                // Only host (first client) can start the game
                 server.onStartGame(this);
                 break;
             case "INPUT":
                 String dir = (String) msg.get("direction");
                 if (dir != null) server.onInput(this, dir);
+                break;
+            case "CHAT":
+                // Forward chat to server for broadcast
+                String text = (String) msg.get("text");
+                if (text != null && !text.isBlank()) server.onChat(this, text);
                 break;
             default:
                 break;
@@ -89,6 +97,11 @@ public class ClientHandler implements Runnable {
     public void applyBufferedDirection() {
         if (player != null && bufferedDirection != null && bufferedDirection != Direction.NONE)
             player.setCurrentDirection(bufferedDirection);
+    }
+
+    /** Snapshot current position before moving – used for cross-swap detection. */
+    public void snapshotPosition() {
+        if (player != null) { prevRow = player.getRow(); prevCol = player.getCol(); }
     }
 
     public void send(Map<String,Object> msg) { sendRaw(NetworkUtils.toJson(msg)); }
