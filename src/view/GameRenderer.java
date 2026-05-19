@@ -20,18 +20,31 @@ public class GameRenderer {
     private static final Color FRIGHT_CLR = new Color(30,   60, 200);
     private static final Color FLASH_CLR  = new Color(220, 220, 220);
     private static final Color HUD_BG     = new Color(0,    0,   0, 190);
+    private static final Color ANNOUNCE_BG = new Color(0,    0,   0, 180);
 
-    private static final Font TITLE_FONT = new Font("Courier New", Font.BOLD,  48);
-    private static final Font BIG_FONT   = new Font("Courier New", Font.BOLD,  32);
-    private static final Font HUD_FONT   = new Font("Courier New", Font.BOLD,  16);
-    private static final Font HINT_FONT  = new Font("Courier New", Font.PLAIN, 14);
+    private static final Font TITLE_FONT    = new Font("Courier New", Font.BOLD,  48);
+    private static final Font BIG_FONT      = new Font("Courier New", Font.BOLD,  32);
+    private static final Font HUD_FONT      = new Font("Courier New", Font.BOLD,  16);
+    private static final Font HINT_FONT     = new Font("Courier New", Font.PLAIN, 14);
+    private static final Font ANNOUNCE_FONT = new Font("Courier New", Font.BOLD,  18);
 
     private int animTick = 0;
     private static final int T = GameConfig.TILE_SIZE;
 
+    // Pixel-interpolation speed: pixels per repaint call.
+    // TICK_MS=150 ms; at ~60 fps repaints that's ~9 repaints per tick.
+    // One tile = T=40 px, so speed = 40/9 ≈ 5 px/repaint → arrives just in time.
+    private static final float INTERP_SPEED = 5.5f;
+
     public void render(Graphics2D g2, GameController ctrl, int w, int h) {
         animTick++;
         GameState state = ctrl.getState();
+
+        // Advance pixel interpolation for all entities every render frame
+        if (state == GameState.PLAYING || state == GameState.DEAD) {
+            ctrl.getPlayer().interpolatePixel(INTERP_SPEED);
+            for (Chaser c : ctrl.getChasers()) c.interpolatePixel(INTERP_SPEED);
+        }
 
         renderMaze(g2, ctrl.getMaze());
         renderPellets(g2, ctrl.getMaze());
@@ -40,6 +53,7 @@ public class GameRenderer {
             renderChasers(g2, ctrl);
             renderPlayer(g2, ctrl);
             renderHUD(g2, ctrl, w);
+            renderAnnouncement(g2, ctrl, w);
         }
 
         switch (state) {
@@ -85,7 +99,11 @@ public class GameRenderer {
     private void renderPlayer(Graphics2D g2, GameController ctrl) {
         Player p  = ctrl.getPlayer();
         GameState st = ctrl.getState();
-        int x = p.getCol()*T+2, y = p.getRow()*T+2, sz = T-4;
+
+        // Use interpolated pixel position
+        int px = (int) p.getPixelX();
+        int py = (int) p.getPixelY();
+        int x = px + 2, y = py + 2, sz = T - 4;
 
         if (st == GameState.DEAD) {
             float ratio  = ctrl.getDeathAnimTicks() / (float) GameConfig.DEATH_TICKS;
@@ -121,11 +139,15 @@ public class GameRenderer {
         g2.setRenderingHint(RenderingHints.KEY_ANTIALIASING, RenderingHints.VALUE_ANTIALIAS_ON);
         for (Chaser c : ctrl.getChasers()) {
             if (c.isEaten()) continue;
-            int x = c.getCol()*T+2, y = c.getRow()*T+2, sz = T-4;
+
+            // Use interpolated pixel position
+            int px = (int) c.getPixelX();
+            int py = (int) c.getPixelY();
+            int x = px + 2, y = py + 2, sz = T - 4;
 
             Color body;
             if (c.isFrightened()) {
-                boolean flash = c.getFrightenedTicks() < 8 && (animTick % 4 < 2);
+                boolean flash = c.getFrightenedTicks() < 12 && (animTick % 4 < 2);
                 body = flash ? FLASH_CLR : FRIGHT_CLR;
             } else { body = CHASER_CLR; }
 
@@ -169,6 +191,29 @@ public class GameRenderer {
         }
     }
 
+    /** Draws the super-pellet warning / relocation announcement banner. */
+    private void renderAnnouncement(Graphics2D g2, GameController ctrl, int panelW) {
+        String msg = ctrl.getAnnouncement();
+        if (msg == null) return;
+
+        // Fade out in last few ticks
+        float alpha = Math.min(1f, ctrl.getAnnouncementTicks() / 6f);
+        int a = (int)(alpha * 220);
+        if (a <= 0) return;
+
+        g2.setFont(ANNOUNCE_FONT);
+        FontMetrics fm = g2.getFontMetrics();
+        int msgW = fm.stringWidth(msg);
+        int bx = panelW/2 - msgW/2 - 10;
+        int by = 30; // just below HUD
+        int bw = msgW + 20, bh = 28;
+
+        g2.setColor(new Color(0, 0, 0, a)); g2.fillRoundRect(bx, by, bw, bh, 8, 8);
+        g2.setColor(new Color(255, 220, 50, a)); g2.drawRoundRect(bx, by, bw, bh, 8, 8);
+        g2.setColor(new Color(255, 240, 80, a));
+        g2.drawString(msg, panelW/2 - msgW/2, by + 19);
+    }
+
     private void drawStartScreen(Graphics2D g2, int w, int h) {
         g2.setColor(new Color(0,0,0,215)); g2.fillRect(0,0,w,h);
         g2.setFont(TITLE_FONT); g2.setColor(PLAYER_CLR);
@@ -177,12 +222,13 @@ public class GameRenderer {
         drawCentered(g2, "& CHASERS", w, h/2-15);
         g2.setFont(HINT_FONT); g2.setColor(new Color(170,170,170));
         String[] tips = { "Arrow Keys  —  Move", "P  —  Pause / Resume", "R  —  Restart anytime",
-                          "Collect POWER PELLETS (orange) to eat Chasers!" };
+                          "Collect POWER PELLETS (orange) to eat Chasers!",
+                          "Power pellets relocate at 0:30, 1:00, and 1:30!" };
         int hy = h/2+22;
         for (String t : tips) { drawCentered(g2, t, w, hy); hy += 22; }
         if ((animTick/10) % 2 == 0) {
             g2.setFont(HUD_FONT); g2.setColor(PLAYER_CLR);
-            drawCentered(g2, ">>  PRESS ENTER TO START  <<", w, h/2+130);
+            drawCentered(g2, ">>  PRESS ENTER TO START  <<", w, h/2+140);
         }
     }
 

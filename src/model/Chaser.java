@@ -12,8 +12,13 @@ public class Chaser extends Entity {
     private Mode mode;
     private int  frightenedTicks;
     private final Random random;
+    // moveDelay=1 → moves every tick; smoother because TICK_MS is now 150 ms
     private final int moveDelay;
     private int delayCounter;
+
+    // Pixel-level interpolation fields (used by renderer only)
+    private float pixelX, pixelY;   // current rendered pixel position
+    private float targetPixelX, targetPixelY;
 
     public Chaser(int startRow, int startCol, int moveDelay) {
         super(startRow, startCol);
@@ -22,6 +27,11 @@ public class Chaser extends Entity {
         this.random          = new Random();
         this.moveDelay       = moveDelay;
         this.delayCounter    = 0;
+        // Initialise pixel position to grid position
+        this.pixelX = startCol * GameConfig.TILE_SIZE;
+        this.pixelY = startRow * GameConfig.TILE_SIZE;
+        this.targetPixelX = pixelX;
+        this.targetPixelY = pixelY;
     }
 
     public void frighten() {
@@ -38,18 +48,42 @@ public class Chaser extends Entity {
     public void respawn() {
         super.respawn();
         mode = Mode.CHASE; frightenedTicks = 0; delayCounter = 0;
+        pixelX = spawnCol * GameConfig.TILE_SIZE;
+        pixelY = spawnRow * GameConfig.TILE_SIZE;
+        targetPixelX = pixelX;
+        targetPixelY = pixelY;
     }
 
     public void moveToward(Player target, Maze maze) {
         delayCounter++;
         if (delayCounter < moveDelay) return;
         delayCounter = 0;
+        int prevRow = row, prevCol = col;
         switch (mode) {
             case CHASE:      moveViaBFS(target.getRow(), target.getCol(), maze); break;
             case FRIGHTENED: moveRandom(maze); break;
             case EATEN:      break;
         }
+        // Update pixel target when grid position changes
+        if (row != prevRow || col != prevCol) {
+            targetPixelX = col * GameConfig.TILE_SIZE;
+            targetPixelY = row * GameConfig.TILE_SIZE;
+        }
     }
+
+    /**
+     * Smoothly interpolates the rendered pixel position toward the grid target.
+     * Call this every repaint cycle. speed controls pixels moved per call.
+     */
+    public void interpolatePixel(float speed) {
+        float dx = targetPixelX - pixelX;
+        float dy = targetPixelY - pixelY;
+        if (Math.abs(dx) < speed) pixelX = targetPixelX; else pixelX += Math.signum(dx) * speed;
+        if (Math.abs(dy) < speed) pixelY = targetPixelY; else pixelY += Math.signum(dy) * speed;
+    }
+
+    public float getPixelX() { return pixelX; }
+    public float getPixelY() { return pixelY; }
 
     @Override public void move(Maze maze) {}
 

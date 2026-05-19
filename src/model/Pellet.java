@@ -4,7 +4,7 @@ public class Pellet {
     public enum Type { NORMAL, POWER }
 
     private final int row, col;
-    private final Type type;
+    private Type type;
     private boolean collected;
 
     public Pellet(int row, int col, Type type) {
@@ -18,4 +18,13 @@ public class Pellet {
     public int getRow()          { return row; }
     public int getCol()          { return col; }
     public Type getType()        { return type; }
+
+    /**
+     * Used by Maze.relocatePowerPellets().
+     * @param power true = promote to POWER (and un-collect); false = demote to NORMAL
+     */
+    public void demoteToPower(boolean power) {
+        this.type = power ? Type.POWER : Type.NORMAL;
+        if (power) this.collected = false; // newly placed power pellet must be collectable
+    }
 }

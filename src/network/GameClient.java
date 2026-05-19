@@ -22,9 +22,11 @@ public class GameClient {
     private Runnable onGameOver;
     private Runnable onCountdownStart;
     private Runnable onCountdownCancel;
-    private Runnable onReturnToLobby;          // fired when server sends LOBBY after a game
-    private Runnable onDisconnectedFromServer; // fired when the TCP connection drops
+    private Runnable onReturnToLobby;
+    private Runnable onDisconnectedFromServer;
     private BiConsumer<String,String> onChat;
+    // New: fired when server sends a super-pellet warning or relocation notice
+    private Consumer<String> onSuperPelletNotice;
 
     public void setOnStateUpdate(Consumer<ClientGameState> cb)      { this.onStateUpdate         = cb; }
     public void setOnError(Consumer<String> cb)                     { this.onError               = cb; }
@@ -35,10 +37,10 @@ public class GameClient {
     public void setOnReturnToLobby(Runnable cb)                     { this.onReturnToLobby       = cb; }
     public void setOnDisconnectedFromServer(Runnable cb)            { this.onDisconnectedFromServer = cb; }
     public void setOnChat(BiConsumer<String,String> cb)             { this.onChat                = cb; }
+    public void setOnSuperPelletNotice(Consumer<String> cb)         { this.onSuperPelletNotice   = cb; }
 
     public ClientGameState getState() { return state; }
 
-    // Whether a game has been started during this session (used to detect lobby-return)
     private volatile boolean gameHasStarted = false;
 
     public boolean connect(String host, int port, String playerName) {
@@ -66,7 +68,6 @@ public class GameClient {
                 } catch (IOException e) {
                     System.out.println("[Client] Reader ended: " + e.getMessage());
                 }
-                // TCP connection closed
                 if (onDisconnectedFromServer != null) onDisconnectedFromServer.run();
             }, "ClientReader");
             readerThread.setDaemon(true);
@@ -99,7 +100,6 @@ public class GameClient {
                 parseLobbyPlayers(msg);
                 state.hostId       = toInt(msg.get("hostId"));
                 state.countingDown = false;
-                // If a game was already played this is a "return to lobby"
                 if (gameHasStarted) {
                     gameHasStarted = false;
                     state.gameResult   = null;
@@ -164,6 +164,13 @@ public class GameClient {
                 String sender = (String) msg.getOrDefault("sender","?");
                 String text   = (String) msg.getOrDefault("text","");
                 if (onChat != null) onChat.accept(sender, text);
+                break;
+
+            // ── New: super-pellet events ──────────────────────────────────────
+            case "SUPER_PELLET_WARNING":
+            case "SUPER_PELLET_RELOCATED":
+                String notice = (String) msg.getOrDefault("message", type);
+                if (onSuperPelletNotice != null) onSuperPelletNotice.accept(notice);
                 break;
 
             case "ERROR":
@@ -265,7 +272,6 @@ public class GameClient {
         sendMsg(msg);
     }
 
-    /** Tell the server we want to go back to the lobby and play again. */
     public void sendPlayAgain() {
         Map<String,Object> msg = new LinkedHashMap<>();
         msg.put("type","PLAY_AGAIN");

@@ -202,7 +202,7 @@ public class GameWindow extends JFrame {
     private void showLobby(boolean host, String ip) {
         SwingUtilities.invokeLater(() -> {
             lobbyScreen = new LobbyScreen(host, client.getState().myId, ip,
-                this::showRoleSelect,          // all players open role select
+                this::showRoleSelect,
                 () -> { client.disconnect(); showCard("mpMenu"); }
             );
             root.add(lobbyScreen, "lobby");
@@ -211,15 +211,13 @@ public class GameWindow extends JFrame {
         });
     }
 
-    // ── Role Select — ALL players go here ───────────────────
+    // ── Role Select ──────────────────────────────────────────
 
     private void showRoleSelect() {
         roleSelect = new RoleSelectScreen(
             role -> {
-                // Send role preference and mark ready — server auto-starts when all ready
                 client.sendRole(role);
                 client.sendReady();
-                // Go back to lobby to see other players' ready status and countdown
                 showCard("lobby");
             },
             () -> showCard("lobby")
@@ -249,11 +247,11 @@ public class GameWindow extends JFrame {
         SwingUtilities.invokeLater(() -> {
             ClientGameState state = client.getState();
             mpGamePanel = new MultiplayerGamePanel(client, state,
-                () -> {  // onEscape
+                () -> {
                     client.disconnect();
                     showCard("mainMenu");
                 },
-                () -> {  // onPlayAgain
+                () -> {
                     client.disconnect();
                     showCard("mainMenu");
                 }
@@ -266,6 +264,13 @@ public class GameWindow extends JFrame {
             client.setOnStateUpdate(s -> {
                 SwingUtilities.invokeLater(() -> {
                     if (mpGamePanel != null) mpGamePanel.updateState(s);
+                });
+            });
+
+            // Wire super-pellet notices to the multiplayer panel
+            client.setOnSuperPelletNotice(msg -> {
+                SwingUtilities.invokeLater(() -> {
+                    if (mpGamePanel != null) mpGamePanel.showSuperPelletNotice(msg);
                 });
             });
         });
@@ -284,7 +289,6 @@ public class GameWindow extends JFrame {
 
         client.setOnCountdownStart(() -> {
             SwingUtilities.invokeLater(() -> {
-                // Switch back to lobby to show the countdown if we're on role select
                 if (!currentCard.equals("lobby")) showCard("lobby");
                 if (lobbyScreen != null) lobbyScreen.showCountdown(3);
             });

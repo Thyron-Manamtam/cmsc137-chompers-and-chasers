@@ -9,6 +9,8 @@ import java.awt.*;
 import java.awt.event.*;
 import java.util.ArrayDeque;
 import java.util.Deque;
+import java.util.HashMap;
+import java.util.Map;
 
 public class MultiplayerGamePanel extends JPanel implements KeyListener {
     private static final int T    = GameConfig.TILE_SIZE;
@@ -24,8 +26,8 @@ public class MultiplayerGamePanel extends JPanel implements KeyListener {
 
     private final GameClient client;
     private volatile ClientGameState state;
-    private final Runnable onEscape;       // called when ESC pressed (go to main menu)
-    private final Runnable onPlayAgain;    // called when "Back to Lobby" clicked
+    private final Runnable onEscape;
+    private final Runnable onPlayAgain;
     private int animTick = 0;
 
     private int startCountdown = 3;
@@ -39,6 +41,16 @@ public class MultiplayerGamePanel extends JPanel implements KeyListener {
 
     // ── "Back to Lobby" overlay button ────────────────────────────────────────
     private JButton backToLobbyBtn;
+
+    // ── Super-pellet announcement ─────────────────────────────────────────────
+    private String announcement     = null;
+    private long   announcementEnd  = 0;
+    private static final long ANNOUNCE_MS = 3500;
+
+    // ── Pixel-level interpolation for players ─────────────────────────────────
+    // Keyed by player id → [pixelX, pixelY]
+    private final Map<Integer, float[]> playerPixels = new HashMap<>();
+    private static final float INTERP_SPEED = 5.5f;  // pixels per repaint ~60fps
 
     // ── Maze grid ─────────────────────────────────────────────────────────────
     private static final int[][] GRID = {
@@ -70,13 +82,12 @@ public class MultiplayerGamePanel extends JPanel implements KeyListener {
         this.onEscape    = onEscape;
         this.onPlayAgain = onPlayAgain;
 
-        setLayout(null); // absolute layout so we can place the overlay button
+        setLayout(null);
         setPreferredSize(new Dimension(COLS * T, ROWS * T + 30));
         setBackground(Color.BLACK);
         setFocusable(true);
         addKeyListener(this);
 
-        // "Back to Lobby" button – hidden until game ends
         backToLobbyBtn = new JButton("Back to Lobby");
         backToLobbyBtn.setFont(new Font("Courier New", Font.BOLD, 16));
         backToLobbyBtn.setBackground(new Color(0, 150, 220));
@@ -84,10 +95,8 @@ public class MultiplayerGamePanel extends JPanel implements KeyListener {
         backToLobbyBtn.setFocusPainted(false);
         backToLobbyBtn.setVisible(false);
         backToLobbyBtn.addActionListener(e -> onPlayAgain.run());
-        // Positioned at centre; exact bounds set in paintComponent once we know size
         add(backToLobbyBtn);
 
-        // Register chat callback
         client.setOnChat((sender, text) -> SwingUtilities.invokeLater(() -> {
             addChatMessage(sender + ": " + text);
             repaint();
@@ -102,15 +111,22 @@ public class MultiplayerGamePanel extends JPanel implements KeyListener {
         });
         cdTimer.start();
 
-        Timer repaintTimer = new Timer(GameConfig.TICK_MS, e -> { animTick++; repaint(); });
+        // Repaint / interpolation timer — ~60 fps for smooth visuals
+        Timer repaintTimer = new Timer(16, e -> { animTick++; repaint(); });
         repaintTimer.start();
+    }
+
+    /** Called by GameWindow when server sends SUPER_PELLET_WARNING or SUPER_PELLET_RELOCATED. */
+    public void showSuperPelletNotice(String msg) {
+        announcement    = msg;
+        announcementEnd = System.currentTimeMillis() + ANNOUNCE_MS;
+        repaint();
     }
 
     public void updateState(ClientGameState newState) {
         this.state = newState;
         if (newState.gameResult != null) {
             SwingUtilities.invokeLater(() -> {
-                // Show the "Back to Lobby" button centred on screen
                 int bw = 200, bh = 44;
                 int bx = (getWidth() - bw) / 2;
                 int by = getHeight() / 2 + 75;
@@ -139,25 +155,46 @@ public class MultiplayerGamePanel extends JPanel implements KeyListener {
         super.paintComponent(g);
         Graphics2D g2 = (Graphics2D) g;
         g2.setRenderingHint(RenderingHints.KEY_ANTIALIASING, RenderingHints.VALUE_ANTIALIAS_ON);
+        g2.setRenderingHint(RenderingHints.KEY_RENDERING, RenderingHints.VALUE_RENDER_QUALITY);
 
         ClientGameState s = state;
         if (s == null) return;
+
+        // Advance pixel interpolation for each player
+        interpolatePlayers(s);
 
         drawMaze(g2);
         drawPellets(g2, s);
         drawPlayers(g2, s);
         drawHUD(g2, s);
         drawChat(g2);
+        drawAnnouncement(g2);
 
         if (countingDown)              drawCountdownOverlay(g2, startCountdown);
         else if (s.gameResult != null) drawResult(g2, s);
 
         if (chatOpen) drawChatInput(g2);
 
-        // Keep button centred if window was resized
         if (backToLobbyBtn.isVisible()) {
             int bw = 200, bh = 44;
             backToLobbyBtn.setBounds((getWidth()-bw)/2, getHeight()/2+75, bw, bh);
+        }
+    }
+
+    /** Move each player's rendered pixel position smoothly toward their grid position. */
+    private void interpolatePlayers(ClientGameState s) {
+        for (ClientGameState.PlayerInfo p : s.players) {
+            float[] px = playerPixels.computeIfAbsent(p.id, k -> new float[]{p.col * T, p.row * T});
+            float targetX = p.col * T;
+            float targetY = p.row * T;
+            float dx = targetX - px[0];
+            float dy = targetY - px[1];
+            // If the player teleports (respawn / large jump), snap immediately
+            if (Math.abs(dx) > T * 2 || Math.abs(dy) > T * 2) { px[0] = targetX; px[1] = targetY; }
+            else {
+                if (Math.abs(dx) < INTERP_SPEED) px[0] = targetX; else px[0] += Math.signum(dx) * INTERP_SPEED;
+                if (Math.abs(dy) < INTERP_SPEED) px[1] = targetY; else px[1] += Math.signum(dy) * INTERP_SPEED;
+            }
         }
     }
 
@@ -180,7 +217,7 @@ public class MultiplayerGamePanel extends JPanel implements KeyListener {
             if (p.collected) continue;
             int x = p.col*T, y = p.row*T+30;
             if (p.power) {
-                double pulse = 1.0 + 0.3 * Math.sin(animTick * 0.2);
+                double pulse = 1.0 + 0.3 * Math.sin(animTick * 0.15);
                 int sz = (int)(14*pulse);
                 g2.setColor(new Color(255,100,50));
                 g2.fillOval(x+T/2-sz/2, y+T/2-sz/2, sz, sz);
@@ -196,19 +233,27 @@ public class MultiplayerGamePanel extends JPanel implements KeyListener {
         int colorIdx = 0;
         for (ClientGameState.PlayerInfo p : s.players) {
             Color col = PLAYER_COLORS[colorIdx++ % PLAYER_COLORS.length];
+
+            // Use interpolated pixel position
+            float[] px = playerPixels.get(p.id);
+            int ix = (px != null) ? (int)px[0] : p.col * T;
+            int iy = (px != null) ? (int)px[1] : p.row * T;
+
             if (p.eliminated) {
-                int x = p.col*T+2, y = p.row*T+2+30, sz = T-4;
+                int x = ix+2, y = iy+2+30, sz = T-4;
                 g2.setColor(new Color(100,0,0,120));  g2.fillOval(x,y,sz,sz);
                 g2.setColor(new Color(200,0,0,180));  g2.setStroke(new BasicStroke(3));
                 g2.drawLine(x+4,y+4,x+sz-4,y+sz-4);  g2.drawLine(x+sz-4,y+4,x+4,y+sz-4);
                 g2.setStroke(new BasicStroke(1));
                 g2.setFont(new Font("Courier New",Font.PLAIN,9));
-                g2.setColor(new Color(200,100,100)); g2.drawString(p.name,x,y-2);
+                g2.setColor(new Color(200,100,100)); g2.drawString(p.name,ix+2,iy+2+30-2);
                 continue;
             }
-            int x = p.col*T+2, y = p.row*T+2+30, sz = T-4;
+
+            int x = ix+2, y = iy+2+30, sz = T-4;
+
             if (p.role == util.Role.CHOMPER) {
-                int mouth = (animTick%2==0) ? 40 : 10;
+                int mouth = (animTick%8 < 4) ? 40 : 10;  // slower mouth for smooth look
                 double rot = 0;
                 if (p.direction != null) switch (p.direction) {
                     case "LEFT": rot=180; break; case "UP": rot=270; break; case "DOWN": rot=90; break;
@@ -217,7 +262,7 @@ public class MultiplayerGamePanel extends JPanel implements KeyListener {
                 g3.setRenderingHint(RenderingHints.KEY_ANTIALIASING,RenderingHints.VALUE_ANTIALIAS_ON);
                 g3.translate(x+sz/2, y+sz/2); g3.rotate(Math.toRadians(rot));
                 if (p.powered) {
-                    int ga = 100 + (int)(80 * Math.sin(animTick * 0.3));
+                    int ga = 100 + (int)(80 * Math.sin(animTick * 0.2));
                     g3.setColor(new Color(255,120,0,ga)); g3.fillOval(-sz/2-6,-sz/2-6,sz+12,sz+12);
                 }
                 g3.setColor(col); g3.fillArc(-sz/2,-sz/2,sz,sz,(int)(mouth/2),(int)(360-mouth));
@@ -264,6 +309,28 @@ public class MultiplayerGamePanel extends JPanel implements KeyListener {
             g2.setFont(new Font("Courier New",Font.PLAIN,10)); g2.setColor(new Color(160,160,160));
             g2.drawString("T=chat  ESC=menu", getWidth()-110, getHeight()-4);
         }
+    }
+
+    /** Draws the super-pellet warning / relocated announcement. */
+    private void drawAnnouncement(Graphics2D g2) {
+        if (announcement == null) return;
+        long remaining = announcementEnd - System.currentTimeMillis();
+        if (remaining <= 0) { announcement = null; return; }
+
+        float alpha = Math.min(1f, remaining / 800f);
+        int a = (int)(alpha * 220);
+
+        g2.setFont(new Font("Courier New", Font.BOLD, 18));
+        FontMetrics fm = g2.getFontMetrics();
+        int msgW = fm.stringWidth(announcement);
+        int bx = getWidth()/2 - msgW/2 - 10;
+        int by = 35;
+        int bw = msgW + 20, bh = 28;
+
+        g2.setColor(new Color(0, 0, 0, Math.min(a, 180))); g2.fillRoundRect(bx, by, bw, bh, 8, 8);
+        g2.setColor(new Color(255, 220, 50, a)); g2.drawRoundRect(bx, by, bw, bh, 8, 8);
+        g2.setColor(new Color(255, 240, 80, a));
+        g2.drawString(announcement, getWidth()/2 - msgW/2, by + 19);
     }
 
     // ── Chat log overlay ──────────────────────────────────────────────────────

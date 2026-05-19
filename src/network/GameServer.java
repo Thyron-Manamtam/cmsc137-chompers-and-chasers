@@ -32,6 +32,13 @@ public class GameServer {
     private int timeLeftTicks;
     private int eatMultiplier = 1;
 
+    // ── Super-pellet relocation tracking ──────────────────────────────────────
+    // Relocation triggers at game-elapsed seconds: 30, 60, 90
+    private static final int[] RELOCATE_AT_ELAPSED_S = { 30, 60, 90 };
+    private boolean[] relocateDone = new boolean[3];
+    private boolean[] warnDone     = new boolean[3];
+    private int elapsedTicks = 0;
+
     public GameServer(int port) throws IOException {
         serverSocket = new ServerSocket();
         serverSocket.setReuseAddress(true);
@@ -86,7 +93,6 @@ public class GameServer {
         ch.prevRow          = -1;
         ch.prevCol          = -1;
 
-        // Once every connected player has sent PLAY_AGAIN we fully reset the server
         boolean allBack = true;
         for (ClientHandler c : clients) {
             if (c.connected && c.assignedRole != null) { allBack = false; break; }
@@ -95,7 +101,6 @@ public class GameServer {
         else broadcastLobby();
     }
 
-    /** Full server-side reset so a fresh game can be played without reconnecting. */
     private synchronized void resetForLobby() {
         gameStarted = false;
         gameOver    = false;
@@ -103,6 +108,9 @@ public class GameServer {
         countdownTicks = 0;
         eatMultiplier  = 1;
         eliminatedChasers.clear();
+        elapsedTicks  = 0;
+        relocateDone  = new boolean[3];
+        warnDone      = new boolean[3];
         players.clear();
         maze = null;
 
@@ -203,6 +211,9 @@ public class GameServer {
         eliminatedChasers.clear();
         eatMultiplier = 1;
         timeLeftTicks = (GameConfig.GAME_DURATION_S * 1000) / GameConfig.TICK_MS;
+        elapsedTicks  = 0;
+        relocateDone  = new boolean[3];
+        warnDone      = new boolean[3];
 
         int[][] chaserSpawns = {{1,1},{1,13},{13,1},{13,13}};
         Player chomperPlayer = new Player(7, 7, Role.CHOMPER);
@@ -236,6 +247,30 @@ public class GameServer {
         if (gameOver) return;
 
         timeLeftTicks--;
+        elapsedTicks++;
+        int elapsedSecs = (elapsedTicks * GameConfig.TICK_MS) / 1000;
+
+        // ── Super-pellet warn / relocate ──────────────────────────────────────
+        for (int i = 0; i < RELOCATE_AT_ELAPSED_S.length; i++) {
+            int target = RELOCATE_AT_ELAPSED_S[i];
+            int warnAt = target - GameConfig.SUPER_PELLET_WARN_BEFORE_S;
+
+            if (!warnDone[i] && elapsedSecs >= warnAt) {
+                warnDone[i] = true;
+                Map<String,Object> warnMsg = new LinkedHashMap<>();
+                warnMsg.put("type","SUPER_PELLET_WARNING");
+                warnMsg.put("message","⚠ SUPER PELLETS MOVING IN 3…");
+                broadcast(warnMsg);
+            }
+            if (!relocateDone[i] && elapsedSecs >= target) {
+                relocateDone[i] = true;
+                maze.relocatePowerPellets();
+                Map<String,Object> relocMsg = new LinkedHashMap<>();
+                relocMsg.put("type","SUPER_PELLET_RELOCATED");
+                relocMsg.put("message","✦ SUPER PELLETS RELOCATED!");
+                broadcast(relocMsg);
+            }
+        }
 
         ClientHandler chomperCH = null;
         List<ClientHandler> chaserCHs = new ArrayList<>();
@@ -248,7 +283,6 @@ public class GameServer {
 
         if (chomperCH == null) { endGame("CHASERS","CHOMPER_LEFT"); return; }
 
-        // Snapshot positions BEFORE moving (cross-swap collision detection)
         chomperCH.snapshotPosition();
         for (ClientHandler ch : chaserCHs) ch.snapshotPosition();
 
@@ -355,9 +389,8 @@ public class GameServer {
         if (gameStarted && !gameOver) {
             if (ch.assignedRole == Role.CHOMPER) endGame("CHASERS","CHOMPER_LEFT");
         } else if (gameOver) {
-            // A player left after game ended — check if anyone remains
             if (clients.isEmpty()) resetForLobby();
-            else broadcastLobby();   // surviving players already got RETURN_TO_LOBBY
+            else broadcastLobby();
         } else if (!gameStarted && !countingDown) {
             broadcastLobby();
         } else if (countingDown) {
